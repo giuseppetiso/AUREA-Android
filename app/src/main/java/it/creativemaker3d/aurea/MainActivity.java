@@ -72,11 +72,17 @@ public class MainActivity extends Activity implements RecognitionListener {
         haToken = prefs.getString("ha_token", "");
         dashboardUrl = prefs.getString("dashboard_url", haUrl + "/lovelace/home");
 
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                tts.setLanguage(Locale.ITALIAN);
-                tts.setSpeechRate(0.94f);
-                tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+        tts = new TextToSpeech(this, status -> main.post(() -> {
+            // Some Android builds can complete TTS initialization before the
+            // constructor assignment is visible to the callback.
+            TextToSpeech engine = tts;
+            if (destroyed || status != TextToSpeech.SUCCESS || engine == null) {
+                return;
+            }
+            try {
+                engine.setLanguage(Locale.ITALIAN);
+                engine.setSpeechRate(0.94f);
+                engine.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
                     @Override public void onStart(String id) {
                         speaking = true;
                         setAvatarState("speak");
@@ -92,8 +98,11 @@ public class MainActivity extends Activity implements RecognitionListener {
                         scheduleListening(350);
                     }
                 });
+            } catch (RuntimeException ignored) {
+                // AUREA can still start even when the tablet TTS service is
+                // absent or not ready. Voice output can be initialized later.
             }
-        });
+        }));
 
         if (haToken.isEmpty()) {
             showSetup();
