@@ -65,44 +65,10 @@ public class MainActivity extends Activity implements RecognitionListener {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        hideSystemUi();
-
         SharedPreferences prefs = getSharedPreferences("aurea", MODE_PRIVATE);
         haUrl = prefs.getString("ha_url", "http://192.168.178.72:8123");
         haToken = prefs.getString("ha_token", "");
         dashboardUrl = prefs.getString("dashboard_url", haUrl + "/lovelace/home");
-
-        tts = new TextToSpeech(this, status -> main.post(() -> {
-            // Some Android builds can complete TTS initialization before the
-            // constructor assignment is visible to the callback.
-            TextToSpeech engine = tts;
-            if (destroyed || status != TextToSpeech.SUCCESS || engine == null) {
-                return;
-            }
-            try {
-                engine.setLanguage(Locale.ITALIAN);
-                engine.setSpeechRate(0.94f);
-                engine.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
-                    @Override public void onStart(String id) {
-                        speaking = true;
-                        setAvatarState("speak");
-                    }
-                    @Override public void onDone(String id) {
-                        speaking = false;
-                        setAvatarState("idle");
-                        scheduleListening(350);
-                    }
-                    @Override public void onError(String id) {
-                        speaking = false;
-                        setAvatarState("idle");
-                        scheduleListening(350);
-                    }
-                });
-            } catch (RuntimeException ignored) {
-                // AUREA can still start even when the tablet TTS service is
-                // absent or not ready. Voice output can be initialized later.
-            }
-        }));
 
         if (haToken.isEmpty()) {
             showSetup();
@@ -165,6 +131,8 @@ public class MainActivity extends Activity implements RecognitionListener {
     }
 
     private void showAurea() {
+        hideSystemUi();
+        initTextToSpeech();
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
         root.setBackgroundColor(Color.rgb(2, 7, 13));
@@ -182,6 +150,40 @@ public class MainActivity extends Activity implements RecognitionListener {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
         } else {
             startRecognizer();
+        }
+    }
+
+    private void initTextToSpeech() {
+        if (tts != null || destroyed) return;
+        try {
+            tts = new TextToSpeech(getApplicationContext(), status -> main.post(() -> {
+                TextToSpeech engine = tts;
+                if (destroyed || status != TextToSpeech.SUCCESS || engine == null) return;
+                try {
+                    engine.setLanguage(Locale.ITALIAN);
+                    engine.setSpeechRate(0.94f);
+                    engine.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                        @Override public void onStart(String id) {
+                            speaking = true;
+                            setAvatarState("speak");
+                        }
+                        @Override public void onDone(String id) {
+                            speaking = false;
+                            setAvatarState("idle");
+                            scheduleListening(350);
+                        }
+                        @Override public void onError(String id) {
+                            speaking = false;
+                            setAvatarState("idle");
+                            scheduleListening(350);
+                        }
+                    });
+                } catch (RuntimeException ignored) {
+                    // Keep AUREA usable even if the tablet voice engine is unavailable.
+                }
+            }));
+        } catch (RuntimeException ignored) {
+            tts = null;
         }
     }
 
@@ -369,8 +371,10 @@ public class MainActivity extends Activity implements RecognitionListener {
 
     @Override protected void onResume() {
         super.onResume();
-        hideSystemUi();
-        if (!speaking && haToken != null && !haToken.isEmpty()) scheduleListening(300);
+        if (haToken != null && !haToken.isEmpty()) {
+            hideSystemUi();
+            if (!speaking) scheduleListening(300);
+        }
     }
 
     @Override protected void onPause() {
