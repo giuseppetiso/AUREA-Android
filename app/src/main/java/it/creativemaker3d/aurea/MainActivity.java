@@ -47,6 +47,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     private static final int AUDIO_PERMISSION = 41;
     private static final String WAKE_WORD = "aurea";
     private static final long RESTART_DELAY_MS = 500;
+    private static final long AFTER_SPEECH_DELAY_MS = 1500;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -170,12 +171,12 @@ public class MainActivity extends Activity implements RecognitionListener {
                         @Override public void onDone(String id) {
                             speaking = false;
                             setAvatarState("idle");
-                            scheduleListening(350);
+                            scheduleListening(AFTER_SPEECH_DELAY_MS);
                         }
                         @Override public void onError(String id) {
                             speaking = false;
                             setAvatarState("idle");
-                            scheduleListening(350);
+                            scheduleListening(AFTER_SPEECH_DELAY_MS);
                         }
                     });
                 } catch (RuntimeException ignored) {
@@ -297,13 +298,35 @@ public class MainActivity extends Activity implements RecognitionListener {
 
     private void speak(String text) {
         main.post(() -> {
+            stopListeningForSpeech();
             if (tts == null) {
-                scheduleListening(500);
+                speaking = false;
+                scheduleListening(AFTER_SPEECH_DELAY_MS);
                 return;
             }
             Bundle params = new Bundle();
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, "aurea-answer");
+            int result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, "aurea-answer");
+            if (result == TextToSpeech.ERROR) {
+                speaking = false;
+                setAvatarState("idle");
+                scheduleListening(AFTER_SPEECH_DELAY_MS);
+            }
         });
+    }
+
+    private void stopListeningForSpeech() {
+        speaking = true;
+        commandMode = false;
+        main.removeCallbacksAndMessages(null);
+        if (recognizer != null) {
+            try {
+                recognizer.cancel();
+            } catch (RuntimeException ignored) {
+                // The recognizer may already be stopping.
+            }
+        }
+        setAvatarState("speak");
+        setAvatarStatus("RISPOSTA");
     }
 
     private void setAvatarState(String state) {
