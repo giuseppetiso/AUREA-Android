@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#02070d">
+  <title>AUREA — Rig Preview 05</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="stage" data-state="idle" aria-busy="true">
+    <section class="portrait" aria-label="Anteprima animata di AUREA">
+      <div class="halo" aria-hidden="true"></div>
+      <div class="portrait-stack">
+        <img id="aurea-background" class="scene-layer" alt="" width="1024" height="1024" draggable="false">
+        <div id="aurea-head-group" class="scene-layer">
+          <div class="head-breathe">
+            <img id="aurea-head" class="scene-layer" alt="" width="1024" height="1024" draggable="false">
+            <canvas id="aurea-overlay" class="scene-layer" width="1024" height="1024" aria-label="AUREA animata"></canvas>
+            <img id="aurea-hair" class="scene-layer" alt="" width="1024" height="1024" draggable="false">
+          </div>
+        </div>
+        <img id="aurea-torso" class="scene-layer" alt="" width="1024" height="1024" draggable="false">
+      </div>
+      <div class="status" aria-live="polite">
+        <span class="status-dot"></span>
+        <span id="status-label">CARICAMENTO</span>
+      </div>
+    </section>
+
+    <aside class="controls">
+      <p class="eyebrow">RIG 2,5D · PREVIEW 05</p>
+      <h1>AUREA</h1>
+      <p class="subtitle">Testa e fondale separati, micro-inclinazioni naturali e rig facciale sempre registrato sul volto.</p>
+
+      <div class="section">
+        <span class="section-label">Stato</span>
+        <div class="buttons three" role="group" aria-label="Stato di AUREA">
+          <button class="active" data-state-button="idle" disabled>Riposo</button>
+          <button data-state-button="listen" disabled>Ascolto</button>
+          <button data-state-button="speak" disabled>Parlato</button>
+        </div>
+      </div>
+
+      <div class="section compact">
+        <span class="section-label">Prova completa</span>
+        <div class="buttons three">
+          <button id="blink" disabled>Battito occhi</button>
+          <button id="head-motion" disabled>Movimento testa</button>
+          <button id="auto-demo" class="accent" disabled>Avvia demo</button>
+        </div>
+      </div>
+
+      <div class="section compact">
+        <span class="section-label">Sguardo</span>
+        <div class="gaze-grid" role="group" aria-label="Direzione dello sguardo">
+          <button data-gaze="-1,0" aria-label="Guarda a sinistra" disabled>←</button>
+          <button data-gaze="0,-1" aria-label="Guarda in alto" disabled>↑</button>
+          <button data-gaze="0,0" aria-label="Guarda al centro" disabled>•</button>
+          <button data-gaze="0,1" aria-label="Guarda in basso" disabled>↓</button>
+          <button data-gaze="1,0" aria-label="Guarda a destra" disabled>→</button>
+        </div>
+      </div>
+
+      <div class="section compact">
+        <span class="section-label">Visemi italiani</span>
+        <div class="buttons visemes" role="group" aria-label="Forme della bocca">
+          <button class="active" data-viseme="REST" disabled>REST</button>
+          <button data-viseme="MBP" disabled>M/B/P</button>
+          <button data-viseme="A" disabled>A</button>
+          <button data-viseme="E" disabled>E</button>
+          <button data-viseme="I" disabled>I</button>
+          <button data-viseme="O" disabled>O</button>
+          <button data-viseme="U" disabled>U</button>
+          <button data-viseme="FV" disabled>F/V</button>
+          <button data-viseme="L" disabled>L</button>
+          <button data-viseme="SZ" disabled>S/Z</button>
+          <button data-viseme="CH" disabled>SC/CI</button>
+          <button data-viseme="CNS" disabled>CONS.</button>
+        </div>
+      </div>
+
+      <dl>
+        <div><dt>Livelli</dt><dd>fondale · testa · capelli · busto</dd></div>
+        <div><dt>Testa</dt><dd>micro-rotazione massima 0,8°</dd></div>
+        <div><dt>Rendering</dt><dd>regioni attive · 60/30/20 fps</dd></div>
+        <div><dt>Voce candidata</dt><dd>Isabella Dragon HD</dd></div>
+      </dl>
+    </aside>
+  </main>
+
+  <script src="rig-manifest.js"></script>
+  <script src="rig-core.js"></script>
+  <script src="rig.js"></script>
+</body>
+</html>

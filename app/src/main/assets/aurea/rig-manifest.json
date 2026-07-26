@@ -1,0 +1,223 @@
+{
+  "version": "05",
+  "canvas": [
+    1024,
+    1024
+  ],
+  "base": "assets/aurea-background.png",
+  "displayMaster": "assets/aurea-master-display.png",
+  "layers": {
+    "background": "assets/aurea-background.png",
+    "head": "assets/aurea-head.png",
+    "hair": "assets/aurea-hair-accent.png",
+    "torso": "assets/aurea-torso.png"
+  },
+  "regions": {
+    "eyes": {
+      "x": 360,
+      "y": 368,
+      "width": 310,
+      "height": 84
+    },
+    "mouth": {
+      "x": 398,
+      "y": 540,
+      "width": 232,
+      "height": 124
+    }
+  },
+  "eyes": {
+    "left": {
+      "iris": {
+        "file": "assets/iris-left.png",
+        "x": 406,
+        "y": 393,
+        "width": 34,
+        "height": 34
+      },
+      "clipPath": "M377 411 C391 390 442 386 471 410 C448 431 399 433 377 411 Z",
+      "quarter": {
+        "file": "assets/eyelid-left-quarter.png",
+        "x": 371,
+        "y": 379,
+        "width": 104,
+        "height": 60
+      },
+      "half": {
+        "file": "assets/eyelid-left-half.png",
+        "x": 371,
+        "y": 379,
+        "width": 104,
+        "height": 60
+      },
+      "threeQuarter": {
+        "file": "assets/eyelid-left-three-quarter.png",
+        "x": 371,
+        "y": 379,
+        "width": 104,
+        "height": 60
+      },
+      "closed": {
+        "file": "assets/eyelid-left-closed.png",
+        "x": 371,
+        "y": 379,
+        "width": 104,
+        "height": 60
+      },
+      "gazeLimit": {
+        "x": 2.6,
+        "y": 1.6
+      }
+    },
+    "right": {
+      "iris": {
+        "file": "assets/iris-right.png",
+        "x": 584,
+        "y": 390,
+        "width": 34,
+        "height": 34
+      },
+      "clipPath": "M545 408 C567 386 621 384 654 408 C628 430 573 432 545 408 Z",
+      "quarter": {
+        "file": "assets/eyelid-right-quarter.png",
+        "x": 541,
+        "y": 376,
+        "width": 120,
+        "height": 62
+      },
+      "half": {
+        "file": "assets/eyelid-right-half.png",
+        "x": 541,
+        "y": 376,
+        "width": 120,
+        "height": 62
+      },
+      "threeQuarter": {
+        "file": "assets/eyelid-right-three-quarter.png",
+        "x": 541,
+        "y": 376,
+        "width": 120,
+        "height": 62
+      },
+      "closed": {
+        "file": "assets/eyelid-right-closed.png",
+        "x": 541,
+        "y": 376,
+        "width": 120,
+        "height": 62
+      },
+      "gazeLimit": {
+        "x": 2.6,
+        "y": 1.6
+      }
+    }
+  },
+  "mouth": {
+    "REST": null,
+    "MBP": {
+      "file": "assets/mouth-mbp.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "A": {
+      "file": "assets/mouth-a.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "E": {
+      "file": "assets/mouth-e.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "I": {
+      "file": "assets/mouth-i.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "O": {
+      "file": "assets/mouth-o.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "U": {
+      "file": "assets/mouth-u.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "FV": {
+      "file": "assets/mouth-fv.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "L": {
+      "file": "assets/mouth-l.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "SZ": {
+      "file": "assets/mouth-sz.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "CH": {
+      "file": "assets/mouth-ch.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    },
+    "CNS": {
+      "file": "assets/mouth-cns.png",
+      "x": 408,
+      "y": 552,
+      "width": 212,
+      "height": 100
+    }
+  },
+  "motion": {
+    "activeFps": 60,
+    "idleFps": 30,
+    "lowPowerFps": 20,
+    "gazeEaseMs": 165,
+    "visemeEaseMs": 58,
+    "blink": {
+      "closeMs": 96,
+      "holdMs": 44,
+      "openMs": 132,
+      "rightEyeOffsetMs": 11
+    },
+    "headMotion": {
+      "enabled": true,
+      "maxXpx": 1.4,
+      "maxYpx": 0.9,
+      "maxRollDeg": 0.8,
+      "easeMs": 760,
+      "idleIntervalMs": [
+        3400,
+        6200
+      ],
+      "lowPowerIntervalMs": [
+        6200,
+        9800
+      ]
+    }
+  }
+}
