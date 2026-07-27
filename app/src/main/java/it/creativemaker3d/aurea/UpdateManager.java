@@ -33,6 +33,7 @@ final class UpdateManager {
     private final Activity activity;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private long downloadId = -1;
+    private boolean waitingInstallPermission;
 
     UpdateManager(Activity activity) {
         this.activity = activity;
@@ -133,6 +134,7 @@ final class UpdateManager {
             Toast.makeText(activity,
                 "Consenti installazioni da AUREA, poi ripeti l’aggiornamento",
                 Toast.LENGTH_LONG).show();
+            waitingInstallPermission = true;
             activity.startActivity(permission);
             return;
         }
@@ -145,6 +147,14 @@ final class UpdateManager {
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         activity.startActivity(install);
+    }
+
+    void resumePendingInstall() {
+        if (waitingInstallPermission && (Build.VERSION.SDK_INT < 26 ||
+            activity.getPackageManager().canRequestPackageInstalls())) {
+            waitingInstallPermission = false;
+            openInstaller();
+        }
     }
 
     void close() {
