@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -21,6 +22,7 @@ import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -154,6 +156,16 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         dashboard.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return handleAureaUrl(request.getUrl());
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleAureaUrl(Uri.parse(url));
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
             }
@@ -167,6 +179,14 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         setContentView(dashboard);
         dashboard.loadUrl(dashboardUrl);
+    }
+
+    private boolean handleAureaUrl(Uri uri) {
+        if (uri == null || !"aurea".equalsIgnoreCase(uri.getScheme())) return false;
+        if ("listen".equalsIgnoreCase(uri.getHost())) {
+            startOneShotListening();
+        }
+        return true;
     }
 
     private void initTextToSpeech() {
