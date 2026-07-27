@@ -440,6 +440,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     protected void onResume() {
         super.onResume();
         if (dashboard != null) hideSystemUi();
+        if (updateManager != null) updateManager.resumePendingInstall();
     }
 
     @Override
