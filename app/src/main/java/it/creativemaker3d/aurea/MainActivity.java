@@ -181,7 +181,13 @@ public class MainActivity extends Activity implements RecognitionListener {
             "var n=p[i];" +
             "var t=((n&&n.innerText)||'').toLowerCase();" +
             "var a=((n&&n.getAttribute&&n.getAttribute('aria-label'))||'').toLowerCase();" +
-            "if(t.indexOf('parla con aurea')>=0||a.indexOf('parla con aurea')>=0){found=true;break;}" +
+            "var title=((n&&n.getAttribute&&n.getAttribute('title'))||'').toLowerCase();" +
+            "var tag=((n&&n.tagName)||'').toLowerCase();" +
+            "var role=((n&&n.getAttribute&&n.getAttribute('role'))||'').toLowerCase();" +
+            "var assistText=t.indexOf('parla con aurea')>=0||t.indexOf('assist')>=0;" +
+            "var assistLabel=a.indexOf('parla con aurea')>=0||a.indexOf('assist')>=0||a.indexOf('microfono')>=0||a.indexOf('microphone')>=0;" +
+            "var assistNode=tag.indexOf('assist')>=0||title.indexOf('assist')>=0;" +
+            "if(assistText||assistLabel||assistNode){found=true;break;}" +
             "}" +
             "if(found){" +
             "e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();" +
