@@ -1,9 +1,12 @@
-name: Compila AUREA APK
+name: Compila e pubblica AUREA APK
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,11 +26,21 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Compila APK di prova
+      - name: Compila APK
         run: gradle :app:assembleDebug
+
+      - name: Prepara APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk AUREA.apk
 
       - name: Conserva APK
         uses: actions/upload-artifact@v4
         with:
           name: AUREA-Android-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: AUREA.apk
+
+      - name: Pubblica APK per aggiornamento diretto
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete aurea-latest --cleanup-tag -y || true
+          gh release create aurea-latest AUREA.apk --title "AUREA aggiornamento corrente" --notes "APK corrente per aggiornamento diretto dal tablet."
