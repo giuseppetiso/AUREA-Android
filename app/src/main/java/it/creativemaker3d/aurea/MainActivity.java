@@ -211,8 +211,14 @@ public class MainActivity extends Activity implements RecognitionListener {
         if (uri == null || !"aurea".equalsIgnoreCase(uri.getScheme())) return false;
         if ("listen".equalsIgnoreCase(uri.getHost())) {
             startOneShotListening();
+        } else if ("close".equalsIgnoreCase(uri.getHost())) {
+            closeAurea();
         }
         return true;
+    }
+
+    private void closeAurea() {
+        finishAndRemoveTask();
     }
 
     private void initTextToSpeech() {
