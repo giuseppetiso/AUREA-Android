@@ -347,7 +347,15 @@ public class MainActivity extends Activity implements RecognitionListener {
     private void setDashboardState(String state) {
         if (dashboard == null) return;
         main.post(() -> dashboard.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('aurea-state',{detail:'" + state + "'}));", null));
+            "(function(state){"
+                + "window.dispatchEvent(new CustomEvent('aurea-state',{detail:state}));"
+                + "document.querySelectorAll('iframe').forEach(function(frame){"
+                + "try{frame.contentWindow.postMessage({"
+                + "type:'aurea-command',command:'state',value:state"
+                + "},'*');}catch(e){}"
+                + "});"
+                + "})('" + state + "');",
+            null));
     }
 
     private void handleWebPermission(PermissionRequest request) {
