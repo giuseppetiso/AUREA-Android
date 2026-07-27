@@ -2,6 +2,10 @@ plugins {
     id "com.android.application"
 }
 
+dependencies {
+    implementation "androidx.core:core:1.15.0"
+}
+
 android {
     namespace "it.creativemaker3d.aurea"
     compileSdk 35
@@ -10,7 +14,7 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 8
-        versionName "0.1.7"
+        versionCode 9
+        versionName "0.1.8"
     }
 }
