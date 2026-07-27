@@ -56,6 +56,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     private SpeechRecognizer recognizer;
     private Intent recognizeIntent;
     private TextToSpeech tts;
+    private UpdateManager updateManager;
     private boolean listening;
     private boolean speaking;
     private boolean destroyed;
@@ -78,6 +79,8 @@ public class MainActivity extends Activity implements RecognitionListener {
         } else {
             showDashboard();
         }
+        updateManager = new UpdateManager(this);
+        updateManager.check(false);
     }
 
     private void showSetup() {
@@ -465,6 +468,10 @@ public class MainActivity extends Activity implements RecognitionListener {
             tts = null;
         }
         io.shutdownNow();
+        if (updateManager != null) {
+            updateManager.close();
+            updateManager = null;
+        }
         if (dashboard != null) {
             dashboard.stopLoading();
             dashboard.removeJavascriptInterface("AureaAndroid");
