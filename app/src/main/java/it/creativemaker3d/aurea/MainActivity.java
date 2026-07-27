@@ -152,12 +152,10 @@ public class MainActivity extends Activity implements RecognitionListener {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(dashboard, true);
 
-        dashboard.addJavascriptInterface(new AureaBridge(), "AureaAndroid");
         dashboard.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                installAureaButtonBridge();
             }
         });
         dashboard.setWebChromeClient(new WebChromeClient() {
@@ -169,46 +167,6 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         setContentView(dashboard);
         dashboard.loadUrl(dashboardUrl);
-    }
-
-    private void installAureaButtonBridge() {
-        if (dashboard == null) return;
-        String script =
-            "(function(){" +
-            "if(window.__aureaBridgeInstalled)return;" +
-            "window.__aureaBridgeInstalled=true;" +
-            "document.addEventListener('click',function(e){" +
-            "var p=e.composedPath?e.composedPath():[e.target];" +
-            "var found=false;" +
-            "for(var i=0;i<p.length;i++){" +
-            "var n=p[i];" +
-            "if(!n||!n.tagName)continue;" +
-            "var tag=(n.tagName||'').toLowerCase();" +
-            "var role=((n.getAttribute&&n.getAttribute('role'))||'').toLowerCase();" +
-            "var interactive=tag==='button'||tag==='a'||role==='button'||tag==='ha-icon-button'||tag.indexOf('assist')>=0;" +
-            "if(!interactive)continue;" +
-            "var t=((n.innerText)||'').trim().toLowerCase();" +
-            "var a=((n.getAttribute&&n.getAttribute('aria-label'))||'').trim().toLowerCase();" +
-            "var title=((n.getAttribute&&n.getAttribute('title'))||'').trim().toLowerCase();" +
-            "var assistText=t==='assist'||t.indexOf('parla con aurea')>=0||t.indexOf('attiva assist')>=0;" +
-            "var assistLabel=a.indexOf('parla con aurea')>=0||a==='assist'||a.indexOf('microfono')>=0||a.indexOf('microphone')>=0;" +
-            "var assistNode=tag.indexOf('assist')>=0||title==='assist'||title.indexOf('parla con aurea')>=0;" +
-            "if(assistText||assistLabel||assistNode){found=true;break;}" +
-            "}" +
-            "if(found){" +
-            "e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();" +
-            "window.AureaAndroid.startListening();" +
-            "}" +
-            "},true);" +
-            "})();";
-        dashboard.evaluateJavascript(script, null);
-    }
-
-    private final class AureaBridge {
-        @JavascriptInterface
-        public void startListening() {
-            main.post(MainActivity.this::startOneShotListening);
-        }
     }
 
     private void initTextToSpeech() {
@@ -373,6 +331,7 @@ public class MainActivity extends Activity implements RecognitionListener {
                 pendingWebPermission.deny();
             }
             pendingWebPermission = null;
+            return;
         }
         if (granted) {
             startOneShotListening();
@@ -475,7 +434,6 @@ public class MainActivity extends Activity implements RecognitionListener {
         }
         if (dashboard != null) {
             dashboard.stopLoading();
-            dashboard.removeJavascriptInterface("AureaAndroid");
             dashboard.destroy();
             dashboard = null;
         }
