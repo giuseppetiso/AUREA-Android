@@ -179,14 +179,17 @@ public class MainActivity extends Activity implements RecognitionListener {
             "var found=false;" +
             "for(var i=0;i<p.length;i++){" +
             "var n=p[i];" +
-            "var t=((n&&n.innerText)||'').toLowerCase();" +
-            "var a=((n&&n.getAttribute&&n.getAttribute('aria-label'))||'').toLowerCase();" +
-            "var title=((n&&n.getAttribute&&n.getAttribute('title'))||'').toLowerCase();" +
-            "var tag=((n&&n.tagName)||'').toLowerCase();" +
-            "var role=((n&&n.getAttribute&&n.getAttribute('role'))||'').toLowerCase();" +
-            "var assistText=t.indexOf('parla con aurea')>=0||t.indexOf('assist')>=0;" +
-            "var assistLabel=a.indexOf('parla con aurea')>=0||a.indexOf('assist')>=0||a.indexOf('microfono')>=0||a.indexOf('microphone')>=0;" +
-            "var assistNode=tag.indexOf('assist')>=0||title.indexOf('assist')>=0;" +
+            "if(!n||!n.tagName)continue;" +
+            "var tag=(n.tagName||'').toLowerCase();" +
+            "var role=((n.getAttribute&&n.getAttribute('role'))||'').toLowerCase();" +
+            "var interactive=tag==='button'||tag==='a'||role==='button'||tag==='ha-icon-button'||tag.indexOf('assist')>=0;" +
+            "if(!interactive)continue;" +
+            "var t=((n.innerText)||'').trim().toLowerCase();" +
+            "var a=((n.getAttribute&&n.getAttribute('aria-label'))||'').trim().toLowerCase();" +
+            "var title=((n.getAttribute&&n.getAttribute('title'))||'').trim().toLowerCase();" +
+            "var assistText=t==='assist'||t.indexOf('parla con aurea')>=0||t.indexOf('attiva assist')>=0;" +
+            "var assistLabel=a.indexOf('parla con aurea')>=0||a==='assist'||a.indexOf('microfono')>=0||a.indexOf('microphone')>=0;" +
+            "var assistNode=tag.indexOf('assist')>=0||title==='assist'||title.indexOf('parla con aurea')>=0;" +
             "if(assistText||assistLabel||assistNode){found=true;break;}" +
             "}" +
             "if(found){" +
