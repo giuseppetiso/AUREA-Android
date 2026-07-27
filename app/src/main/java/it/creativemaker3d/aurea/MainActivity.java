@@ -144,6 +144,7 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         dashboard = new WebView(this);
         dashboard.setBackgroundColor(Color.rgb(2, 7, 13));
+        dashboard.addJavascriptInterface(new AureaBridge(), "AureaNative");
 
         WebSettings settings = dashboard.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -168,6 +169,7 @@ public class MainActivity extends Activity implements RecognitionListener {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                installNativeVoiceButton(view);
             }
         });
         dashboard.setWebChromeClient(new WebChromeClient() {
@@ -179,6 +181,30 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         setContentView(dashboard);
         dashboard.loadUrl(dashboardUrl);
+    }
+
+    private final class AureaBridge {
+        @JavascriptInterface
+        public void startListening() {
+            main.post(() -> startOneShotListening());
+        }
+    }
+
+    private void installNativeVoiceButton(WebView view) {
+        String script = "(function(){"
+            + "if(window.__aureaNativeButtonInstalled)return;"
+            + "window.__aureaNativeButtonInstalled=true;"
+            + "document.addEventListener('click',function(e){"
+            + "var p=e.composedPath?e.composedPath():[];"
+            + "var hit=p.some(function(n){"
+            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
+            + "return t==='Parla con AUREA'||t==='Attiva Assist';"
+            + "});"
+            + "if(hit){e.preventDefault();e.stopImmediatePropagation();"
+            + "window.AureaNative.startListening();}"
+            + "},true);"
+            + "})();";
+        view.evaluateJavascript(script, null);
     }
 
     private boolean handleAureaUrl(Uri uri) {
