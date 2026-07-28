@@ -199,6 +199,18 @@ public class MainActivity extends Activity implements RecognitionListener {
         public void startListening() {
             main.post(() -> startOneShotListening());
         }
+
+        @JavascriptInterface
+        public void closeApp() {
+            main.post(MainActivity.this::closeAurea);
+        }
+
+        @JavascriptInterface
+        public void checkUpdates() {
+            main.post(() -> {
+                if (updateManager != null) updateManager.check(true);
+            });
+        }
     }
 
     private void installNativeVoiceButton(WebView view) {
@@ -213,6 +225,18 @@ public class MainActivity extends Activity implements RecognitionListener {
             + "});"
             + "if(hit){e.preventDefault();e.stopImmediatePropagation();"
             + "window.AureaNative.startListening();}"
+            + "var closeHit=p.some(function(n){"
+            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
+            + "return t==='Chiudi AUREA';"
+            + "});"
+            + "if(closeHit){e.preventDefault();e.stopImmediatePropagation();"
+            + "window.AureaNative.closeApp();}"
+            + "var updateHit=p.some(function(n){"
+            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
+            + "return t==='Controlla aggiornamenti';"
+            + "});"
+            + "if(updateHit){e.preventDefault();e.stopImmediatePropagation();"
+            + "window.AureaNative.checkUpdates();}"
             + "},true);"
             + "})();";
         view.evaluateJavascript(script, null);
@@ -224,6 +248,8 @@ public class MainActivity extends Activity implements RecognitionListener {
             startOneShotListening();
         } else if ("close".equalsIgnoreCase(uri.getHost())) {
             closeAurea();
+        } else if ("update".equalsIgnoreCase(uri.getHost())) {
+            if (updateManager != null) updateManager.check(true);
         }
         return true;
     }
