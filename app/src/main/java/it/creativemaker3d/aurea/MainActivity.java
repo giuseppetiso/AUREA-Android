@@ -141,7 +141,6 @@ public class MainActivity extends Activity implements RecognitionListener {
     }
 
     private void showDashboard() {
-        hideSystemUi();
         initTextToSpeech();
 
         dashboard = new WebView(this);
@@ -190,6 +189,7 @@ public class MainActivity extends Activity implements RecognitionListener {
         });
 
         setContentView(dashboard);
+        dashboard.post(this::hideSystemUi);
         dashboard.loadUrl(dashboardUrl);
         requestAudioPermissionOnStartup();
     }
@@ -466,19 +466,23 @@ public class MainActivity extends Activity implements RecognitionListener {
     }
 
     private void hideSystemUi() {
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.hide(WindowInsets.Type.systemBars());
-                controller.setSystemBarsBehavior(
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        View decorView = getWindow().getDecorView();
+        decorView.post(() -> {
+            if (destroyed) return;
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                WindowInsetsController controller = decorView.getWindowInsetsController();
+                if (controller != null) {
+                    controller.hide(WindowInsets.Type.systemBars());
+                    controller.setSystemBarsBehavior(
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                }
+            } else {
+                decorView.setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
             }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        }
+        });
     }
 
     @Override
