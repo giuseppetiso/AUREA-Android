@@ -386,28 +386,9 @@ public class MainActivity extends Activity implements RecognitionListener {
         if (dashboard == null) return;
         main.post(() -> {
             if (dashboard == null || destroyed) return;
-            String script = "(function(){"
-                + "var state='" + state + "';"
-                + "window.dispatchEvent(new CustomEvent('aurea-state',{detail:state}));"
-                + "var seen=[];"
-                + "function walk(root){"
-                + "if(!root||seen.indexOf(root)!==-1)return;"
-                + "seen.push(root);"
-                + "var nodes=root.querySelectorAll?root.querySelectorAll('*'):[];"
-                + "for(var i=0;i<nodes.length;i++){"
-                + "var node=nodes[i];"
-                + "if(node.shadowRoot)walk(node.shadowRoot);"
-                + "if(node.tagName==='IFRAME'&&((node.getAttribute('src')||'').indexOf('/local/aurea/')!==-1)){"
-                + "try{"
-                + "node.contentWindow.dispatchEvent(new node.contentWindow.CustomEvent('aurea-state',{detail:state}));"
-                + "node.contentWindow.postMessage({type:'aurea-state',state:state},'*');"
-                + "}catch(ignored){}"
-                + "}"
-                + "}"
-                + "}"
-                + "walk(document);"
-                + "})();";
-            dashboard.evaluateJavascript(script, null);
+            dashboard.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('aurea-state',{detail:'" + state + "'}));",
+                null);
         });
     }
 
