@@ -62,6 +62,8 @@ public class MainActivity extends Activity implements RecognitionListener {
     private boolean listening;
     private boolean speaking;
     private boolean destroyed;
+    private boolean startListeningAfterPermission;
+    private boolean recoveringWebView;
     private String haUrl;
     private String haToken;
     private String dashboardUrl;
@@ -149,6 +151,8 @@ public class MainActivity extends Activity implements RecognitionListener {
         WebSettings settings = dashboard.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
@@ -167,6 +171,12 @@ public class MainActivity extends Activity implements RecognitionListener {
             }
 
             @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                recoverDashboard();
+                return true;
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 installNativeVoiceButton(view);
@@ -181,6 +191,7 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         setContentView(dashboard);
         dashboard.loadUrl(dashboardUrl);
+        requestAudioPermissionOnStartup();
     }
 
     private final class AureaBridge {
@@ -244,10 +255,37 @@ public class MainActivity extends Activity implements RecognitionListener {
         }));
     }
 
+    private void requestAudioPermissionOnStartup() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return;
+        startListeningAfterPermission = false;
+        main.postDelayed(() -> {
+            if (!destroyed && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
+            }
+        }, 700);
+    }
+
+    private void recoverDashboard() {
+        if (recoveringWebView || destroyed) return;
+        recoveringWebView = true;
+        main.post(() -> {
+            WebView failed = dashboard;
+            dashboard = null;
+            if (failed != null) {
+                failed.stopLoading();
+                failed.clearCache(true);
+                failed.destroy();
+            }
+            recoveringWebView = false;
+            showDashboard();
+        });
+    }
+
     private void startOneShotListening() {
         if (destroyed || speaking || listening) return;
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            startListeningAfterPermission = true;
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
             return;
         }
@@ -385,9 +423,10 @@ public class MainActivity extends Activity implements RecognitionListener {
             pendingWebPermission = null;
             return;
         }
-        if (granted) {
+        if (granted && startListeningAfterPermission) {
+            startListeningAfterPermission = false;
             startOneShotListening();
-        } else {
+        } else if (!granted) {
             Toast.makeText(this, "Consenti il microfono per parlare con AUREA", Toast.LENGTH_LONG).show();
         }
     }
@@ -450,12 +489,16 @@ public class MainActivity extends Activity implements RecognitionListener {
     @Override
     protected void onResume() {
         super.onResume();
-        if (dashboard != null) hideSystemUi();
+        if (dashboard != null) {
+            hideSystemUi();
+            dashboard.onResume();
+        }
         if (updateManager != null) updateManager.resumePendingInstall();
     }
 
     @Override
     protected void onPause() {
+        if (dashboard != null) dashboard.onPause();
         if (recognizer != null && listening) {
             recognizer.cancel();
             listening = false;
