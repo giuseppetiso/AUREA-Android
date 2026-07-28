@@ -14,7 +14,23 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName "0.2.1"
+        versionCode 13
+        versionName "0.2.2"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("AUREA_KEYSTORE_PATH"))
+            storePassword System.getenv("AUREA_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("AUREA_KEY_ALIAS")
+            keyPassword System.getenv("AUREA_KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
     }
 }

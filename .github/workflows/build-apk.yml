@@ -26,16 +26,30 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Compila APK
-        run: gradle :app:assembleDebug
+      - name: Ricrea la chiave di firma AUREA
+        env:
+          AUREA_KEYSTORE_BASE64: ${{ secrets.AUREA_KEYSTORE_BASE64 }}
+        run: |
+          echo "$AUREA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/AUREA-release.jks"
+          test -s "$RUNNER_TEMP/AUREA-release.jks"
 
-      - name: Prepara APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk AUREA.apk
+      - name: Compila APK release firmato
+        env:
+          AUREA_KEYSTORE_PATH: ${{ runner.temp }}/AUREA-release.jks
+          AUREA_KEYSTORE_PASSWORD: ${{ secrets.AUREA_KEYSTORE_PASSWORD }}
+          AUREA_KEY_ALIAS: ${{ secrets.AUREA_KEY_ALIAS }}
+          AUREA_KEY_PASSWORD: ${{ secrets.AUREA_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease
+
+      - name: Verifica e prepara APK
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk AUREA.apk
 
       - name: Conserva APK
         uses: actions/upload-artifact@v4
         with:
-          name: AUREA-Android-debug
+          name: AUREA-Android-release-signed
           path: AUREA.apk
 
       - name: Pubblica APK per aggiornamento diretto
@@ -43,4 +57,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete aurea-latest --cleanup-tag -y || true
-          gh release create aurea-latest AUREA.apk --title "AUREA aggiornamento corrente" --notes "APK corrente per aggiornamento diretto dal tablet."
+          gh release create aurea-latest AUREA.apk --title "AUREA aggiornamento corrente" --notes "APK release firmato con la chiave permanente AUREA."
