@@ -3,7 +3,7 @@ plugins {
 }
 
 def releaseKeystorePath = System.getenv("AUREA_KEYSTORE_PATH")
-def cameraxVersion = "1.6.1"
+def cameraxVersion = "1.5.3"
 
 dependencies {
     implementation "androidx.core:core:1.15.0"
