@@ -12,6 +12,7 @@
         android:required="false" />
 
     <application
+        android:name=".AureaApplication"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -30,6 +31,12 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
+            android:exported="false" />
+
+        <activity
+            android:name=".VoiceGateActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="sensorLandscape"
             android:exported="false" />
 
         <activity
