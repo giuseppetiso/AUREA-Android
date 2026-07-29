@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -65,6 +66,12 @@ public class MainActivity extends Activity implements RecognitionListener {
     private Intent wakeWordIntent;
     private TextToSpeech tts;
     private UpdateManager updateManager;
+    private AudioManager audioManager;
+    private int savedSystemVolume = -1;
+    private int savedMusicVolume = -1;
+    private boolean systemToneMuted;
+    private boolean musicToneMuted;
+    private final Runnable restoreStartTone = this::restoreMusicTone;
     private boolean listening;
     private boolean speaking;
     private boolean destroyed;
@@ -81,6 +88,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
 
         SharedPreferences prefs = getSharedPreferences("aurea", MODE_PRIVATE);
         haUrl = prefs.getString("ha_url", "http://192.168.178.72:8123");
@@ -395,9 +403,12 @@ public class MainActivity extends Activity implements RecognitionListener {
         recognitionMode = mode;
         listening = true;
         if (mode == MODE_COMMAND) setDashboardState("listen");
+        muteRecognizerTone();
         try {
             recognizer.startListening(intent);
+            main.postDelayed(restoreStartTone, 650L);
         } catch (RuntimeException error) {
+            restoreRecognizerTone();
             listening = false;
             recognitionMode = MODE_IDLE;
             if (mode == MODE_COMMAND) {
@@ -413,11 +424,17 @@ public class MainActivity extends Activity implements RecognitionListener {
         recognitionMode = MODE_IDLE;
         if (recognizer != null && listening) {
             ignoreRecognitionCallbacks = true;
+            muteRecognizerTone();
             try {
                 recognizer.cancel();
             } catch (RuntimeException ignored) {
             }
-            main.postDelayed(() -> ignoreRecognitionCallbacks = false, 350L);
+            main.postDelayed(() -> {
+                ignoreRecognitionCallbacks = false;
+                restoreRecognizerTone();
+            }, 450L);
+        } else {
+            restoreRecognizerTone();
         }
         listening = false;
     }
@@ -430,6 +447,56 @@ public class MainActivity extends Activity implements RecognitionListener {
 
     private void cancelWakeWordRestart() {
         main.removeCallbacks(wakeRestart);
+    }
+
+    private void muteRecognizerTone() {
+        if (audioManager == null) return;
+        main.removeCallbacks(restoreStartTone);
+        try {
+            if (!systemToneMuted) {
+                savedSystemVolume = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM);
+                if (savedSystemVolume > 0) {
+                    audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
+                }
+                systemToneMuted = true;
+            }
+            if (!musicToneMuted) {
+                savedMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+                if (savedMusicVolume > 0) {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0);
+                }
+                musicToneMuted = true;
+            }
+        } catch (RuntimeException ignored) {
+            restoreRecognizerTone();
+        }
+    }
+
+    private void restoreMusicTone() {
+        main.removeCallbacks(restoreStartTone);
+        if (!musicToneMuted || audioManager == null) return;
+        try {
+            if (savedMusicVolume >= 0) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVolume, 0);
+            }
+        } catch (RuntimeException ignored) {
+        }
+        savedMusicVolume = -1;
+        musicToneMuted = false;
+    }
+
+    private void restoreRecognizerTone() {
+        main.removeCallbacks(restoreStartTone);
+        restoreMusicTone();
+        if (!systemToneMuted || audioManager == null) return;
+        try {
+            if (savedSystemVolume >= 0) {
+                audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, savedSystemVolume, 0);
+            }
+        } catch (RuntimeException ignored) {
+        }
+        savedSystemVolume = -1;
+        systemToneMuted = false;
     }
 
     private void sendCommand(String command) {
@@ -484,6 +551,7 @@ public class MainActivity extends Activity implements RecognitionListener {
         main.post(() -> {
             cancelWakeWordRestart();
             stopCurrentRecognition();
+            restoreRecognizerTone();
             if (tts == null) {
                 speaking = false;
                 setDashboardState("idle");
@@ -580,7 +648,10 @@ public class MainActivity extends Activity implements RecognitionListener {
         }
     }
 
-    @Override public void onReadyForSpeech(Bundle params) {}
+    @Override
+    public void onReadyForSpeech(Bundle params) {
+        main.postDelayed(restoreStartTone, 120L);
+    }
     @Override public void onBeginningOfSpeech() {}
     @Override public void onRmsChanged(float rms) {}
     @Override public void onBufferReceived(byte[] buffer) {}
@@ -589,6 +660,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     @Override
     public void onError(int error) {
         if (ignoreRecognitionCallbacks) return;
+        restoreRecognizerTone();
 
         int finishedMode = recognitionMode;
         listening = false;
@@ -614,6 +686,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     @Override
     public void onResults(Bundle results) {
         if (ignoreRecognitionCallbacks) return;
+        restoreRecognizerTone();
 
         int finishedMode = recognitionMode;
         listening = false;
@@ -706,6 +779,7 @@ public class MainActivity extends Activity implements RecognitionListener {
         destroyed = true;
         activityVisible = false;
         cancelWakeWordRestart();
+        restoreRecognizerTone();
         if (pendingWebPermission != null) {
             pendingWebPermission.deny();
             pendingWebPermission = null;
