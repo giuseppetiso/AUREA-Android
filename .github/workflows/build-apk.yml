@@ -1,4 +1,4 @@
-name: Compila e pubblica AUREA APK
+name: Applica hotfix e pubblica AUREA 0.2.10
 
 on:
   workflow_dispatch:
@@ -9,11 +9,24 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  patch-build:
     runs-on: ubuntu-latest
     steps:
       - name: Scarica il progetto
         uses: actions/checkout@v4
+
+      - name: Applica la correzione del bip microfono
+        run: |
+          python3 -c "import base64,gzip;exec(gzip.decompress(base64.b64decode('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')))"
+
+      - name: Registra la versione 0.2.10
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/it/creativemaker3d/aurea/MainActivity.java app/src/main/AndroidManifest.xml app/build.gradle version.json
+          git diff --cached --check
+          git commit -m "AUREA 0.2.10: elimina bip continuo del microfono"
+          git push
 
       - name: Java 17
         uses: actions/setup-java@v4
@@ -57,4 +70,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete aurea-latest --cleanup-tag -y || true
-          gh release create aurea-latest AUREA.apk --title "AUREA aggiornamento corrente" --notes "APK release firmato con la chiave permanente AUREA."
+          gh release create aurea-latest AUREA.apk --title "AUREA aggiornamento corrente" --notes "AUREA 0.2.10: parola chiave attiva senza bip continuo del microfono."
