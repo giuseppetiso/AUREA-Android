@@ -26,7 +26,7 @@ public final class AureaApplication extends Application
         implements Application.ActivityLifecycleCallbacks {
 
     private static final long FACE_DELAY_MS = 1100L;
-    private static final long MIN_VOICE_FLOW_MS = 3500L;
+    private static final long MIN_VOICE_FLOW_MS = 5200L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
 
