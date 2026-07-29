@@ -6,7 +6,8 @@ def releaseKeystorePath = System.getenv("AUREA_KEYSTORE_PATH")
 
 dependencies {
     implementation "androidx.core:core:1.15.0"
-    implementation "ai.picovoice:porcupine-android:4.0.0"
+    implementation "net.java.dev.jna:jna:5.18.1@aar"
+    implementation "com.alphacephei:vosk-android:0.3.75@aar"
 }
 
 android {
@@ -17,8 +18,8 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 22
-        versionName "0.2.11"
+        versionCode 23
+        versionName "0.2.12"
     }
 
     signingConfigs {

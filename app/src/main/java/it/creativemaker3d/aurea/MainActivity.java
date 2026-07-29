@@ -2,7 +2,6 @@ package it.creativemaker3d.aurea;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -15,7 +14,6 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -56,7 +54,6 @@ public class MainActivity extends Activity implements RecognitionListener {
     private static final String PREF_HA_URL = "ha_url";
     private static final String PREF_HA_TOKEN = "ha_token";
     private static final String PREF_DASHBOARD_URL = "dashboard_url";
-    private static final String PREF_PICOVOICE_KEY = "picovoice_access_key";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -67,7 +64,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     private Intent commandIntent;
     private TextToSpeech tts;
     private UpdateManager updateManager;
-    private PorcupineWakeWord wakeWord;
+    private VoskWakeWord wakeWord;
 
     private boolean commandListening;
     private boolean speaking;
@@ -75,12 +72,12 @@ public class MainActivity extends Activity implements RecognitionListener {
     private boolean activityVisible;
     private boolean startCommandAfterPermission;
     private boolean recoveringWebView;
-    private boolean wakeWordSetupShown;
+    private boolean modelPreparingNoticeShown;
+    private boolean wakeReadyNoticeShown;
 
     private String haUrl;
     private String haToken;
     private String dashboardUrl;
-    private String picovoiceAccessKey;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -90,8 +87,9 @@ public class MainActivity extends Activity implements RecognitionListener {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         haUrl = prefs.getString(PREF_HA_URL, "http://192.168.178.72:8123");
         haToken = prefs.getString(PREF_HA_TOKEN, "");
-        dashboardUrl = prefs.getString(PREF_DASHBOARD_URL, haUrl + "/lovelace/home");
-        picovoiceAccessKey = prefs.getString(PREF_PICOVOICE_KEY, "");
+        dashboardUrl = prefs.getString(
+            PREF_DASHBOARD_URL,
+            haUrl + "/lovelace/home");
 
         if (haToken.isEmpty()) {
             showSetup();
@@ -119,11 +117,9 @@ public class MainActivity extends Activity implements RecognitionListener {
         EditText url = field("Indirizzo Home Assistant", haUrl);
         EditText dash = field("Dashboard", dashboardUrl);
         EditText token = field("Token dedicato AUREA", "");
-        EditText accessKey = field("AccessKey Picovoice per la parola Aurea", picovoiceAccessKey);
         panel.addView(url);
         panel.addView(dash);
         panel.addView(token);
-        panel.addView(accessKey);
 
         Button save = new Button(this);
         save.setText("Salva e avvia AUREA");
@@ -131,10 +127,12 @@ public class MainActivity extends Activity implements RecognitionListener {
             haUrl = trimSlash(url.getText().toString().trim());
             dashboardUrl = dash.getText().toString().trim();
             haToken = token.getText().toString().trim();
-            picovoiceAccessKey = accessKey.getText().toString().trim();
 
             if (haUrl.isEmpty() || haToken.isEmpty()) {
-                Toast.makeText(this, "Inserisci indirizzo e token", Toast.LENGTH_LONG).show();
+                Toast.makeText(
+                    this,
+                    "Inserisci indirizzo e token",
+                    Toast.LENGTH_LONG).show();
                 return;
             }
 
@@ -142,7 +140,6 @@ public class MainActivity extends Activity implements RecognitionListener {
                 .putString(PREF_HA_URL, haUrl)
                 .putString(PREF_DASHBOARD_URL, dashboardUrl)
                 .putString(PREF_HA_TOKEN, haToken)
-                .putString(PREF_PICOVOICE_KEY, picovoiceAccessKey)
                 .apply();
 
             showDashboard();
@@ -183,7 +180,9 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         dashboard.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            public boolean shouldOverrideUrlLoading(
+                    WebView view,
+                    WebResourceRequest request) {
                 return handleAureaUrl(request.getUrl());
             }
 
@@ -240,11 +239,6 @@ public class MainActivity extends Activity implements RecognitionListener {
                 }
             });
         }
-
-        @JavascriptInterface
-        public void configureWakeWord() {
-            main.post(() -> showWakeWordSetup(true));
-        }
     }
 
     private void installNativeButtons(WebView view) {
@@ -264,10 +258,7 @@ public class MainActivity extends Activity implements RecognitionListener {
             + "window.AureaNative.closeApp();return;}"
             + "var updateHit=p.some(function(n){return text(n)==='Controlla aggiornamenti';});"
             + "if(updateHit){e.preventDefault();e.stopImmediatePropagation();"
-            + "window.AureaNative.checkUpdates();return;}"
-            + "var wakeHit=p.some(function(n){return text(n)==='Configura parola Aurea';});"
-            + "if(wakeHit){e.preventDefault();e.stopImmediatePropagation();"
-            + "window.AureaNative.configureWakeWord();}"
+            + "window.AureaNative.checkUpdates();}"
             + "},true);"
             + "})();";
         view.evaluateJavascript(script, null);
@@ -287,8 +278,6 @@ public class MainActivity extends Activity implements RecognitionListener {
             if (updateManager != null) {
                 updateManager.check(true);
             }
-        } else if ("wakeword".equalsIgnoreCase(host)) {
-            showWakeWordSetup(true);
         }
         return true;
     }
@@ -327,7 +316,9 @@ public class MainActivity extends Activity implements RecognitionListener {
                         main.post(() -> {
                             speaking = false;
                             setDashboardState("idle");
-                            main.postDelayed(MainActivity.this::startWakeWord, 400L);
+                            main.postDelayed(
+                                MainActivity.this::startWakeWord,
+                                450L);
                         });
                     }
 
@@ -336,7 +327,9 @@ public class MainActivity extends Activity implements RecognitionListener {
                         main.post(() -> {
                             speaking = false;
                             setDashboardState("idle");
-                            main.postDelayed(MainActivity.this::startWakeWord, 600L);
+                            main.postDelayed(
+                                MainActivity.this::startWakeWord,
+                                650L);
                         });
                     }
                 });
@@ -561,13 +554,8 @@ public class MainActivity extends Activity implements RecognitionListener {
             return;
         }
 
-        if (picovoiceAccessKey == null || picovoiceAccessKey.trim().isEmpty()) {
-            showWakeWordSetup(false);
-            return;
-        }
-
         ensureWakeWordController();
-        wakeWord.initialize(picovoiceAccessKey.trim());
+        wakeWord.initialize();
     }
 
     private void ensureWakeWordController() {
@@ -575,12 +563,32 @@ public class MainActivity extends Activity implements RecognitionListener {
             return;
         }
 
-        wakeWord = new PorcupineWakeWord(
+        wakeWord = new VoskWakeWord(
             getApplicationContext(),
             main,
-            new PorcupineWakeWord.Listener() {
+            new VoskWakeWord.Listener() {
+                @Override
+                public void onPreparing() {
+                    if (modelPreparingNoticeShown) {
+                        return;
+                    }
+                    modelPreparingNoticeShown = true;
+                    Toast.makeText(
+                        MainActivity.this,
+                        "Preparazione ascolto locale: scarico una sola volta "
+                            + "il modello italiano (circa 48 MB).",
+                        Toast.LENGTH_LONG).show();
+                }
+
                 @Override
                 public void onReady() {
+                    if (!wakeReadyNoticeShown) {
+                        wakeReadyNoticeShown = true;
+                        Toast.makeText(
+                            MainActivity.this,
+                            "Parola “Aurea” pronta: ascolto continuo locale attivo.",
+                            Toast.LENGTH_LONG).show();
+                    }
                     startWakeWord();
                 }
 
@@ -610,14 +618,10 @@ public class MainActivity extends Activity implements RecognitionListener {
             return;
         }
 
-        if (picovoiceAccessKey == null || picovoiceAccessKey.trim().isEmpty()) {
-            showWakeWordSetup(false);
-            return;
-        }
-
         ensureWakeWordController();
         if (!wakeWord.isReady()) {
-            wakeWord.initialize(picovoiceAccessKey.trim());
+            wakeWord.initialize();
+            return;
         }
         wakeWord.start();
     }
@@ -635,90 +639,7 @@ public class MainActivity extends Activity implements RecognitionListener {
 
         stopWakeWord();
         setDashboardState("listen");
-        main.postDelayed(this::startOneShotListening, 180L);
-    }
-
-    private void showWakeWordSetup(boolean force) {
-        if (destroyed || (!force && wakeWordSetupShown)) {
-            return;
-        }
-
-        wakeWordSetupShown = true;
-
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setInputType(
-            InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-        input.setHint("AccessKey Picovoice");
-        input.setText(picovoiceAccessKey == null ? "" : picovoiceAccessKey);
-        input.setSelectAllOnFocus(true);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("Attiva la parola “Aurea”")
-            .setMessage(
-                "Crea gratuitamente una AccessKey nella Picovoice Console, "
-                    + "copiala qui e premi Salva. "
-                    + "Il modello viene preparato una sola volta; "
-                    + "poi l’ascolto resta locale sul tablet.")
-            .setView(input)
-            .setPositiveButton("Salva", null)
-            .setNegativeButton("Più tardi", (d, which) -> {
-                wakeWordSetupShown = false;
-            })
-            .setNeutralButton("Apri Picovoice", null)
-            .create();
-
-        dialog.setOnShowListener(ignored -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(v -> {
-                    String newKey = input.getText().toString().trim();
-                    if (newKey.isEmpty()) {
-                        Toast.makeText(
-                            this,
-                            "Incolla la AccessKey Picovoice",
-                            Toast.LENGTH_LONG).show();
-                        return;
-                    }
-
-                    boolean changed = !newKey.equals(picovoiceAccessKey);
-                    picovoiceAccessKey = newKey;
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(PREF_PICOVOICE_KEY, newKey)
-                        .apply();
-
-                    if (changed) {
-                        if (wakeWord != null) {
-                            wakeWord.delete();
-                            wakeWord = null;
-                        }
-                        PorcupineWakeWord.deleteGeneratedKeyword(this);
-                    }
-
-                    wakeWordSetupShown = false;
-                    dialog.dismiss();
-                    prepareWakeWordIfPossible();
-                });
-
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener(v -> {
-                    try {
-                        startActivity(new Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://console.picovoice.ai/")));
-                    } catch (Exception error) {
-                        Toast.makeText(
-                            this,
-                            "Apri console.picovoice.ai nel browser",
-                            Toast.LENGTH_LONG).show();
-                    }
-                    wakeWordSetupShown = false;
-                    dialog.dismiss();
-                });
-        });
-
-        dialog.setOnDismissListener(ignored -> wakeWordSetupShown = false);
-        dialog.show();
+        main.postDelayed(this::startOneShotListening, 260L);
     }
 
     private void setDashboardState(String state) {
