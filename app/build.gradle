@@ -2,8 +2,11 @@ plugins {
     id "com.android.application"
 }
 
+def releaseKeystorePath = System.getenv("AUREA_KEYSTORE_PATH")
+
 dependencies {
     implementation "androidx.core:core:1.15.0"
+    implementation "ai.picovoice:porcupine-android:4.0.0"
 }
 
 android {
@@ -14,22 +17,26 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 21
-        versionName "0.2.10"
+        versionCode 22
+        versionName "0.2.11"
     }
 
     signingConfigs {
         release {
-            storeFile file(System.getenv("AUREA_KEYSTORE_PATH"))
-            storePassword System.getenv("AUREA_KEYSTORE_PASSWORD")
-            keyAlias System.getenv("AUREA_KEY_ALIAS")
-            keyPassword System.getenv("AUREA_KEY_PASSWORD")
+            if (releaseKeystorePath) {
+                storeFile file(releaseKeystorePath)
+                storePassword System.getenv("AUREA_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("AUREA_KEY_ALIAS")
+                keyPassword System.getenv("AUREA_KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (releaseKeystorePath) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
         }
     }

@@ -2,11 +2,11 @@ package it.creativemaker3d.aurea;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -15,6 +15,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -23,8 +24,8 @@ import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -50,56 +51,54 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity implements RecognitionListener {
     private static final int AUDIO_PERMISSION = 41;
-    private static final int MODE_IDLE = 0;
-    private static final int MODE_WAKE_WORD = 1;
-    private static final int MODE_COMMAND = 2;
-    private static final long WAKE_RESTART_DELAY_MS = 700L;
+
+    private static final String PREFS = "aurea";
+    private static final String PREF_HA_URL = "ha_url";
+    private static final String PREF_HA_TOKEN = "ha_token";
+    private static final String PREF_DASHBOARD_URL = "dashboard_url";
+    private static final String PREF_PICOVOICE_KEY = "picovoice_access_key";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final Runnable wakeRestart = this::startWakeWordListening;
 
     private WebView dashboard;
     private PermissionRequest pendingWebPermission;
     private SpeechRecognizer recognizer;
     private Intent commandIntent;
-    private Intent wakeWordIntent;
     private TextToSpeech tts;
     private UpdateManager updateManager;
-    private AudioManager audioManager;
-    private int savedSystemVolume = -1;
-    private int savedMusicVolume = -1;
-    private boolean systemToneMuted;
-    private boolean musicToneMuted;
-    private final Runnable restoreStartTone = this::restoreMusicTone;
-    private boolean listening;
+    private PorcupineWakeWord wakeWord;
+
+    private boolean commandListening;
     private boolean speaking;
     private boolean destroyed;
     private boolean activityVisible;
-    private boolean startListeningAfterPermission;
+    private boolean startCommandAfterPermission;
     private boolean recoveringWebView;
-    private boolean ignoreRecognitionCallbacks;
-    private int recognitionMode = MODE_IDLE;
+    private boolean wakeWordSetupShown;
+
     private String haUrl;
     private String haToken;
     private String dashboardUrl;
+    private String picovoiceAccessKey;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
 
-        SharedPreferences prefs = getSharedPreferences("aurea", MODE_PRIVATE);
-        haUrl = prefs.getString("ha_url", "http://192.168.178.72:8123");
-        haToken = prefs.getString("ha_token", "");
-        dashboardUrl = prefs.getString("dashboard_url", haUrl + "/lovelace/home");
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        haUrl = prefs.getString(PREF_HA_URL, "http://192.168.178.72:8123");
+        haToken = prefs.getString(PREF_HA_TOKEN, "");
+        dashboardUrl = prefs.getString(PREF_DASHBOARD_URL, haUrl + "/lovelace/home");
+        picovoiceAccessKey = prefs.getString(PREF_PICOVOICE_KEY, "");
 
         if (haToken.isEmpty()) {
             showSetup();
         } else {
             showDashboard();
         }
+
         updateManager = new UpdateManager(this);
         updateManager.check(false);
     }
@@ -120,9 +119,11 @@ public class MainActivity extends Activity implements RecognitionListener {
         EditText url = field("Indirizzo Home Assistant", haUrl);
         EditText dash = field("Dashboard", dashboardUrl);
         EditText token = field("Token dedicato AUREA", "");
+        EditText accessKey = field("AccessKey Picovoice per la parola Aurea", picovoiceAccessKey);
         panel.addView(url);
         panel.addView(dash);
         panel.addView(token);
+        panel.addView(accessKey);
 
         Button save = new Button(this);
         save.setText("Salva e avvia AUREA");
@@ -130,15 +131,20 @@ public class MainActivity extends Activity implements RecognitionListener {
             haUrl = trimSlash(url.getText().toString().trim());
             dashboardUrl = dash.getText().toString().trim();
             haToken = token.getText().toString().trim();
+            picovoiceAccessKey = accessKey.getText().toString().trim();
+
             if (haUrl.isEmpty() || haToken.isEmpty()) {
                 Toast.makeText(this, "Inserisci indirizzo e token", Toast.LENGTH_LONG).show();
                 return;
             }
-            getSharedPreferences("aurea", MODE_PRIVATE).edit()
-                .putString("ha_url", haUrl)
-                .putString("dashboard_url", dashboardUrl)
-                .putString("ha_token", haToken)
+
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(PREF_HA_URL, haUrl)
+                .putString(PREF_DASHBOARD_URL, dashboardUrl)
+                .putString(PREF_HA_TOKEN, haToken)
+                .putString(PREF_PICOVOICE_KEY, picovoiceAccessKey)
                 .apply();
+
             showDashboard();
         });
         panel.addView(save);
@@ -187,7 +193,9 @@ public class MainActivity extends Activity implements RecognitionListener {
             }
 
             @Override
-            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            public boolean onRenderProcessGone(
+                    WebView view,
+                    android.webkit.RenderProcessGoneDetail detail) {
                 recoverDashboard();
                 return true;
             }
@@ -195,10 +203,11 @@ public class MainActivity extends Activity implements RecognitionListener {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                installNativeVoiceButton(view);
-                scheduleWakeWordListening(900L);
+                installNativeButtons(view);
+                prepareWakeWordIfPossible();
             }
         });
+
         dashboard.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
@@ -215,7 +224,7 @@ public class MainActivity extends Activity implements RecognitionListener {
     private final class AureaBridge {
         @JavascriptInterface
         public void startListening() {
-            main.post(() -> startOneShotListening());
+            main.post(MainActivity.this::startOneShotListening);
         }
 
         @JavascriptInterface
@@ -226,110 +235,142 @@ public class MainActivity extends Activity implements RecognitionListener {
         @JavascriptInterface
         public void checkUpdates() {
             main.post(() -> {
-                if (updateManager != null) updateManager.check(true);
+                if (updateManager != null) {
+                    updateManager.check(true);
+                }
             });
+        }
+
+        @JavascriptInterface
+        public void configureWakeWord() {
+            main.post(() -> showWakeWordSetup(true));
         }
     }
 
-    private void installNativeVoiceButton(WebView view) {
+    private void installNativeButtons(WebView view) {
         String script = "(function(){"
             + "if(window.__aureaNativeButtonInstalled)return;"
             + "window.__aureaNativeButtonInstalled=true;"
             + "document.addEventListener('click',function(e){"
             + "var p=e.composedPath?e.composedPath():[];"
-            + "var hit=p.some(function(n){"
-            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
-            + "return t==='Parla con AUREA'||t==='Attiva Assist';"
-            + "});"
+            + "var text=function(n){return ((n&&((n.innerText||n.textContent)))||'')"
+            + ".trim().replace(/\\s+/g,' ');};"
+            + "var hit=p.some(function(n){var t=text(n);"
+            + "return t==='Parla con AUREA'||t==='Attiva Assist';});"
             + "if(hit){e.preventDefault();e.stopImmediatePropagation();"
-            + "window.AureaNative.startListening();}"
-            + "var closeHit=p.some(function(n){"
-            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
-            + "return t==='Chiudi AUREA';"
-            + "});"
+            + "window.AureaNative.startListening();return;}"
+            + "var closeHit=p.some(function(n){return text(n)==='Chiudi AUREA';});"
             + "if(closeHit){e.preventDefault();e.stopImmediatePropagation();"
-            + "window.AureaNative.closeApp();}"
-            + "var updateHit=p.some(function(n){"
-            + "var t=((n&&((n.innerText||n.textContent)))||'').trim().replace(/\\s+/g,' ');"
-            + "return t==='Controlla aggiornamenti';"
-            + "});"
+            + "window.AureaNative.closeApp();return;}"
+            + "var updateHit=p.some(function(n){return text(n)==='Controlla aggiornamenti';});"
             + "if(updateHit){e.preventDefault();e.stopImmediatePropagation();"
-            + "window.AureaNative.checkUpdates();}"
+            + "window.AureaNative.checkUpdates();return;}"
+            + "var wakeHit=p.some(function(n){return text(n)==='Configura parola Aurea';});"
+            + "if(wakeHit){e.preventDefault();e.stopImmediatePropagation();"
+            + "window.AureaNative.configureWakeWord();}"
             + "},true);"
             + "})();";
         view.evaluateJavascript(script, null);
     }
 
     private boolean handleAureaUrl(Uri uri) {
-        if (uri == null || !"aurea".equalsIgnoreCase(uri.getScheme())) return false;
-        if ("listen".equalsIgnoreCase(uri.getHost())) {
+        if (uri == null || !"aurea".equalsIgnoreCase(uri.getScheme())) {
+            return false;
+        }
+
+        String host = uri.getHost();
+        if ("listen".equalsIgnoreCase(host)) {
             startOneShotListening();
-        } else if ("close".equalsIgnoreCase(uri.getHost())) {
+        } else if ("close".equalsIgnoreCase(host)) {
             closeAurea();
-        } else if ("update".equalsIgnoreCase(uri.getHost())) {
-            if (updateManager != null) updateManager.check(true);
+        } else if ("update".equalsIgnoreCase(host)) {
+            if (updateManager != null) {
+                updateManager.check(true);
+            }
+        } else if ("wakeword".equalsIgnoreCase(host)) {
+            showWakeWordSetup(true);
         }
         return true;
     }
 
     private void closeAurea() {
-        cancelWakeWordRestart();
-        stopCurrentRecognition();
+        stopWakeWord();
+        stopCommandRecognition();
         finishAndRemoveTask();
     }
 
     private void initTextToSpeech() {
-        if (tts != null || destroyed) return;
+        if (tts != null || destroyed) {
+            return;
+        }
+
         tts = new TextToSpeech(getApplicationContext(), status -> main.post(() -> {
-            if (destroyed || status != TextToSpeech.SUCCESS || tts == null) return;
+            if (destroyed || status != TextToSpeech.SUCCESS || tts == null) {
+                return;
+            }
+
             tts.setLanguage(Locale.ITALIAN);
             tts.setSpeechRate(0.94f);
-            tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
-                @Override public void onStart(String id) {
-                    main.post(() -> {
-                        cancelWakeWordRestart();
-                        speaking = true;
-                        setDashboardState("speak");
-                    });
-                }
+            tts.setOnUtteranceProgressListener(
+                new android.speech.tts.UtteranceProgressListener() {
+                    @Override
+                    public void onStart(String id) {
+                        main.post(() -> {
+                            stopWakeWord();
+                            speaking = true;
+                            setDashboardState("speak");
+                        });
+                    }
 
-                @Override public void onDone(String id) {
-                    main.post(() -> {
-                        speaking = false;
-                        setDashboardState("idle");
-                        scheduleWakeWordListening(500L);
-                    });
-                }
+                    @Override
+                    public void onDone(String id) {
+                        main.post(() -> {
+                            speaking = false;
+                            setDashboardState("idle");
+                            main.postDelayed(MainActivity.this::startWakeWord, 400L);
+                        });
+                    }
 
-                @Override public void onError(String id) {
-                    main.post(() -> {
-                        speaking = false;
-                        setDashboardState("idle");
-                        scheduleWakeWordListening(700L);
-                    });
-                }
-            });
+                    @Override
+                    public void onError(String id) {
+                        main.post(() -> {
+                            speaking = false;
+                            setDashboardState("idle");
+                            main.postDelayed(MainActivity.this::startWakeWord, 600L);
+                        });
+                    }
+                });
         }));
     }
 
     private void requestAudioPermissionOnStartup() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            scheduleWakeWordListening(900L);
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+            prepareWakeWordIfPossible();
             return;
         }
-        startListeningAfterPermission = false;
+
+        startCommandAfterPermission = false;
         main.postDelayed(() -> {
-            if (!destroyed && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
+            if (!destroyed
+                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(
+                    new String[]{Manifest.permission.RECORD_AUDIO},
+                    AUDIO_PERMISSION);
             }
-        }, 700);
+        }, 700L);
     }
 
     private void recoverDashboard() {
-        if (recoveringWebView || destroyed) return;
+        if (recoveringWebView || destroyed) {
+            return;
+        }
+
         recoveringWebView = true;
-        cancelWakeWordRestart();
-        stopCurrentRecognition();
+        stopWakeWord();
+        stopCommandRecognition();
+
         main.post(() -> {
             WebView failed = dashboard;
             dashboard = null;
@@ -344,9 +385,15 @@ public class MainActivity extends Activity implements RecognitionListener {
     }
 
     private boolean ensureRecognizer() {
-        if (recognizer != null) return true;
+        if (recognizer != null) {
+            return true;
+        }
+
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "Riconoscimento vocale non disponibile", Toast.LENGTH_LONG).show();
+            Toast.makeText(
+                this,
+                "Riconoscimento vocale non disponibile",
+                Toast.LENGTH_LONG).show();
             return false;
         }
 
@@ -354,177 +401,106 @@ public class MainActivity extends Activity implements RecognitionListener {
         recognizer.setRecognitionListener(this);
 
         commandIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        commandIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        commandIntent.putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         commandIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT");
         commandIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         commandIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
-        commandIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L);
-        commandIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 700L);
-
-        wakeWordIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "it-IT");
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 700L);
-        wakeWordIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 450L);
+        commandIntent.putExtra(
+            RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+            1100L);
+        commandIntent.putExtra(
+            RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+            700L);
         return true;
     }
 
     private void startOneShotListening() {
-        cancelWakeWordRestart();
-        if (destroyed || speaking) return;
+        stopWakeWord();
 
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            startListeningAfterPermission = true;
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
+        if (destroyed || speaking || commandListening) {
             return;
         }
 
-        if (listening) {
-            stopCurrentRecognition();
-            main.postDelayed(this::startOneShotListening, 650L);
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            startCommandAfterPermission = true;
+            requestPermissions(
+                new String[]{Manifest.permission.RECORD_AUDIO},
+                AUDIO_PERMISSION);
             return;
         }
 
-        if (!ensureRecognizer()) return;
-        beginRecognition(MODE_COMMAND, commandIntent);
-    }
+        if (!ensureRecognizer()) {
+            startWakeWord();
+            return;
+        }
 
-    private void startWakeWordListening() {
-        if (destroyed || !activityVisible || speaking || dashboard == null || listening) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
-        if (!ensureRecognizer()) return;
-        beginRecognition(MODE_WAKE_WORD, wakeWordIntent);
-    }
+        commandListening = true;
+        setDashboardState("listen");
 
-    private void beginRecognition(int mode, Intent intent) {
-        ignoreRecognitionCallbacks = false;
-        recognitionMode = mode;
-        listening = true;
-        if (mode == MODE_COMMAND) setDashboardState("listen");
-        muteRecognizerTone();
         try {
-            recognizer.startListening(intent);
-            main.postDelayed(restoreStartTone, 650L);
+            recognizer.startListening(commandIntent);
         } catch (RuntimeException error) {
-            restoreRecognizerTone();
-            listening = false;
-            recognitionMode = MODE_IDLE;
-            if (mode == MODE_COMMAND) {
-                setDashboardState("idle");
-                Toast.makeText(this, "Microfono momentaneamente occupato", Toast.LENGTH_SHORT).show();
-            }
-            scheduleWakeWordListening(1200L);
+            commandListening = false;
+            setDashboardState("idle");
+            Toast.makeText(
+                this,
+                "Microfono momentaneamente occupato",
+                Toast.LENGTH_SHORT).show();
+            main.postDelayed(this::startWakeWord, 900L);
         }
     }
 
-    private void stopCurrentRecognition() {
-        cancelWakeWordRestart();
-        recognitionMode = MODE_IDLE;
-        if (recognizer != null && listening) {
-            ignoreRecognitionCallbacks = true;
-            muteRecognizerTone();
+    private void stopCommandRecognition() {
+        if (recognizer != null && commandListening) {
             try {
                 recognizer.cancel();
             } catch (RuntimeException ignored) {
             }
-            main.postDelayed(() -> {
-                ignoreRecognitionCallbacks = false;
-                restoreRecognizerTone();
-            }, 450L);
-        } else {
-            restoreRecognizerTone();
         }
-        listening = false;
-    }
-
-    private void scheduleWakeWordListening(long delayMs) {
-        cancelWakeWordRestart();
-        if (destroyed || !activityVisible || speaking || dashboard == null) return;
-        main.postDelayed(wakeRestart, Math.max(delayMs, WAKE_RESTART_DELAY_MS));
-    }
-
-    private void cancelWakeWordRestart() {
-        main.removeCallbacks(wakeRestart);
-    }
-
-    private void muteRecognizerTone() {
-        if (audioManager == null) return;
-        main.removeCallbacks(restoreStartTone);
-        try {
-            if (!systemToneMuted) {
-                savedSystemVolume = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM);
-                if (savedSystemVolume > 0) {
-                    audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
-                }
-                systemToneMuted = true;
-            }
-            if (!musicToneMuted) {
-                savedMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-                if (savedMusicVolume > 0) {
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0);
-                }
-                musicToneMuted = true;
-            }
-        } catch (RuntimeException ignored) {
-            restoreRecognizerTone();
-        }
-    }
-
-    private void restoreMusicTone() {
-        main.removeCallbacks(restoreStartTone);
-        if (!musicToneMuted || audioManager == null) return;
-        try {
-            if (savedMusicVolume >= 0) {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVolume, 0);
-            }
-        } catch (RuntimeException ignored) {
-        }
-        savedMusicVolume = -1;
-        musicToneMuted = false;
-    }
-
-    private void restoreRecognizerTone() {
-        main.removeCallbacks(restoreStartTone);
-        restoreMusicTone();
-        if (!systemToneMuted || audioManager == null) return;
-        try {
-            if (savedSystemVolume >= 0) {
-                audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, savedSystemVolume, 0);
-            }
-        } catch (RuntimeException ignored) {
-        }
-        savedSystemVolume = -1;
-        systemToneMuted = false;
+        commandListening = false;
     }
 
     private void sendCommand(String command) {
-        cancelWakeWordRestart();
+        stopWakeWord();
         setDashboardState("think");
+
         io.execute(() -> {
             try {
                 URL endpoint = new URL(haUrl + "/api/conversation/process");
-                HttpURLConnection connection = (HttpURLConnection) endpoint.openConnection();
+                HttpURLConnection connection =
+                    (HttpURLConnection) endpoint.openConnection();
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(20000);
-                connection.setRequestProperty("Authorization", "Bearer " + haToken);
-                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setRequestProperty(
+                    "Authorization",
+                    "Bearer " + haToken);
+                connection.setRequestProperty(
+                    "Content-Type",
+                    "application/json");
                 connection.setDoOutput(true);
 
                 JSONObject request = new JSONObject();
                 request.put("text", command);
                 request.put("language", "it");
+
                 try (OutputStream output = connection.getOutputStream()) {
-                    output.write(request.toString().getBytes(StandardCharsets.UTF_8));
+                    output.write(
+                        request.toString().getBytes(StandardCharsets.UTF_8));
                 }
 
                 int code = connection.getResponseCode();
                 InputStream stream = code >= 200 && code < 300
-                    ? connection.getInputStream() : connection.getErrorStream();
+                    ? connection.getInputStream()
+                    : connection.getErrorStream();
                 String body = readAll(stream);
-                if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code);
+
+                if (code < 200 || code >= 300) {
+                    throw new IllegalStateException("HTTP " + code);
+                }
 
                 JSONObject root = new JSONObject(body);
                 String answer = root.getJSONObject("response")
@@ -540,64 +516,223 @@ public class MainActivity extends Activity implements RecognitionListener {
 
     private String readAll(InputStream input) throws Exception {
         StringBuilder result = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(input, StandardCharsets.UTF_8))) {
             String line;
-            while ((line = reader.readLine()) != null) result.append(line);
+            while ((line = reader.readLine()) != null) {
+                result.append(line);
+            }
         }
         return result.toString();
     }
 
     private void speak(String text) {
         main.post(() -> {
-            cancelWakeWordRestart();
-            stopCurrentRecognition();
-            restoreRecognizerTone();
+            stopWakeWord();
+            stopCommandRecognition();
+
             if (tts == null) {
                 speaking = false;
                 setDashboardState("idle");
-                scheduleWakeWordListening(700L);
+                startWakeWord();
                 return;
             }
+
             speaking = true;
-            int result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, new Bundle(), "aurea-answer");
+            int result = tts.speak(
+                text,
+                TextToSpeech.QUEUE_FLUSH,
+                new Bundle(),
+                "aurea-answer");
+
             if (result == TextToSpeech.ERROR) {
                 speaking = false;
                 setDashboardState("idle");
-                scheduleWakeWordListening(700L);
+                startWakeWord();
             }
         });
     }
 
-    private String commandAfterWakeWord(ArrayList<String> phrases) {
-        if (phrases == null) return null;
-        for (String phrase : phrases) {
-            if (phrase == null) continue;
-            String normalized = phrase.toLowerCase(Locale.ITALIAN)
-                .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-            if (normalized.isEmpty()) continue;
-
-            String[] words = normalized.split(" ");
-            for (int i = 0; i < words.length; i++) {
-                if (!"aurea".equals(words[i])) continue;
-                StringBuilder command = new StringBuilder();
-                for (int j = i + 1; j < words.length; j++) {
-                    if (command.length() > 0) command.append(' ');
-                    command.append(words[j]);
-                }
-                return command.toString();
-            }
+    private void prepareWakeWordIfPossible() {
+        if (destroyed
+                || dashboard == null
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
         }
-        return null;
+
+        if (picovoiceAccessKey == null || picovoiceAccessKey.trim().isEmpty()) {
+            showWakeWordSetup(false);
+            return;
+        }
+
+        ensureWakeWordController();
+        wakeWord.initialize(picovoiceAccessKey.trim());
+    }
+
+    private void ensureWakeWordController() {
+        if (wakeWord != null) {
+            return;
+        }
+
+        wakeWord = new PorcupineWakeWord(
+            getApplicationContext(),
+            main,
+            new PorcupineWakeWord.Listener() {
+                @Override
+                public void onReady() {
+                    startWakeWord();
+                }
+
+                @Override
+                public void onDetected() {
+                    handleWakeWordDetected();
+                }
+
+                @Override
+                public void onError(String message) {
+                    Toast.makeText(
+                        MainActivity.this,
+                        message,
+                        Toast.LENGTH_LONG).show();
+                }
+            });
+    }
+
+    private void startWakeWord() {
+        if (destroyed
+                || !activityVisible
+                || speaking
+                || commandListening
+                || dashboard == null
+                || checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        if (picovoiceAccessKey == null || picovoiceAccessKey.trim().isEmpty()) {
+            showWakeWordSetup(false);
+            return;
+        }
+
+        ensureWakeWordController();
+        if (!wakeWord.isReady()) {
+            wakeWord.initialize(picovoiceAccessKey.trim());
+        }
+        wakeWord.start();
+    }
+
+    private void stopWakeWord() {
+        if (wakeWord != null) {
+            wakeWord.stop();
+        }
+    }
+
+    private void handleWakeWordDetected() {
+        if (destroyed || speaking || commandListening) {
+            return;
+        }
+
+        stopWakeWord();
+        setDashboardState("listen");
+        main.postDelayed(this::startOneShotListening, 180L);
+    }
+
+    private void showWakeWordSetup(boolean force) {
+        if (destroyed || (!force && wakeWordSetupShown)) {
+            return;
+        }
+
+        wakeWordSetupShown = true;
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(
+            InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        input.setHint("AccessKey Picovoice");
+        input.setText(picovoiceAccessKey == null ? "" : picovoiceAccessKey);
+        input.setSelectAllOnFocus(true);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Attiva la parola “Aurea”")
+            .setMessage(
+                "Crea gratuitamente una AccessKey nella Picovoice Console, "
+                    + "copiala qui e premi Salva. "
+                    + "Il modello viene preparato una sola volta; "
+                    + "poi l’ascolto resta locale sul tablet.")
+            .setView(input)
+            .setPositiveButton("Salva", null)
+            .setNegativeButton("Più tardi", (d, which) -> {
+                wakeWordSetupShown = false;
+            })
+            .setNeutralButton("Apri Picovoice", null)
+            .create();
+
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String newKey = input.getText().toString().trim();
+                    if (newKey.isEmpty()) {
+                        Toast.makeText(
+                            this,
+                            "Incolla la AccessKey Picovoice",
+                            Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    boolean changed = !newKey.equals(picovoiceAccessKey);
+                    picovoiceAccessKey = newKey;
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putString(PREF_PICOVOICE_KEY, newKey)
+                        .apply();
+
+                    if (changed) {
+                        if (wakeWord != null) {
+                            wakeWord.delete();
+                            wakeWord = null;
+                        }
+                        PorcupineWakeWord.deleteGeneratedKeyword(this);
+                    }
+
+                    wakeWordSetupShown = false;
+                    dialog.dismiss();
+                    prepareWakeWordIfPossible();
+                });
+
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(v -> {
+                    try {
+                        startActivity(new Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://console.picovoice.ai/")));
+                    } catch (Exception error) {
+                        Toast.makeText(
+                            this,
+                            "Apri console.picovoice.ai nel browser",
+                            Toast.LENGTH_LONG).show();
+                    }
+                    wakeWordSetupShown = false;
+                    dialog.dismiss();
+                });
+        });
+
+        dialog.setOnDismissListener(ignored -> wakeWordSetupShown = false);
+        dialog.show();
     }
 
     private void setDashboardState(String state) {
-        if (dashboard == null) return;
+        if (dashboard == null) {
+            return;
+        }
+
         main.post(() -> {
-            if (dashboard == null || destroyed) return;
+            if (dashboard == null || destroyed) {
+                return;
+            }
             dashboard.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('aurea-state',{detail:'" + state + "'}));",
+                "window.dispatchEvent(new CustomEvent('aurea-state',"
+                    + "{detail:'" + state + "'}));",
                 null);
         });
     }
@@ -610,130 +745,149 @@ public class MainActivity extends Activity implements RecognitionListener {
                 break;
             }
         }
+
         if (!wantsAudio) {
             request.deny();
             return;
         }
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+            request.grant(
+                new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
         } else {
             pendingWebPermission = request;
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
+            requestPermissions(
+                new String[]{Manifest.permission.RECORD_AUDIO},
+                AUDIO_PERMISSION);
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode != AUDIO_PERMISSION) return;
 
-        boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (requestCode != AUDIO_PERMISSION) {
+            return;
+        }
+
+        boolean granted = results.length > 0
+            && results[0] == PackageManager.PERMISSION_GRANTED;
+
         if (pendingWebPermission != null) {
             if (granted) {
-                pendingWebPermission.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
-                scheduleWakeWordListening(900L);
+                pendingWebPermission.grant(
+                    new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
             } else {
                 pendingWebPermission.deny();
             }
             pendingWebPermission = null;
+        }
+
+        if (!granted) {
+            Toast.makeText(
+                this,
+                "Consenti il microfono per parlare con AUREA",
+                Toast.LENGTH_LONG).show();
             return;
         }
-        if (granted && startListeningAfterPermission) {
-            startListeningAfterPermission = false;
+
+        if (startCommandAfterPermission) {
+            startCommandAfterPermission = false;
             startOneShotListening();
-        } else if (granted) {
-            scheduleWakeWordListening(900L);
         } else {
-            Toast.makeText(this, "Consenti il microfono per parlare con AUREA", Toast.LENGTH_LONG).show();
+            prepareWakeWordIfPossible();
         }
     }
 
     @Override
     public void onReadyForSpeech(Bundle params) {
-        main.postDelayed(restoreStartTone, 120L);
     }
-    @Override public void onBeginningOfSpeech() {}
-    @Override public void onRmsChanged(float rms) {}
-    @Override public void onBufferReceived(byte[] buffer) {}
-    @Override public void onEndOfSpeech() {}
+
+    @Override
+    public void onBeginningOfSpeech() {
+    }
+
+    @Override
+    public void onRmsChanged(float rms) {
+    }
+
+    @Override
+    public void onBufferReceived(byte[] buffer) {
+    }
+
+    @Override
+    public void onEndOfSpeech() {
+    }
 
     @Override
     public void onError(int error) {
-        if (ignoreRecognitionCallbacks) return;
-        restoreRecognizerTone();
-
-        int finishedMode = recognitionMode;
-        listening = false;
-        recognitionMode = MODE_IDLE;
-
-        if (finishedMode == MODE_WAKE_WORD) {
-            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                Toast.makeText(this, "Consenti il microfono per usare la parola Aurea", Toast.LENGTH_LONG).show();
-                return;
-            }
-            scheduleWakeWordListening(error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 1500L : 800L);
-            return;
-        }
-
+        commandListening = false;
         setDashboardState("idle");
-        if (!destroyed && error != SpeechRecognizer.ERROR_NO_MATCH &&
-            error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-            Toast.makeText(this, "Non ho capito, riprova", Toast.LENGTH_SHORT).show();
+
+        if (!destroyed
+                && error != SpeechRecognizer.ERROR_NO_MATCH
+                && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                && error != SpeechRecognizer.ERROR_CLIENT) {
+            Toast.makeText(
+                this,
+                "Non ho capito, riprova",
+                Toast.LENGTH_SHORT).show();
         }
-        scheduleWakeWordListening(900L);
+
+        main.postDelayed(this::startWakeWord, 700L);
     }
 
     @Override
     public void onResults(Bundle results) {
-        if (ignoreRecognitionCallbacks) return;
-        restoreRecognizerTone();
+        commandListening = false;
+        ArrayList<String> phrases =
+            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
 
-        int finishedMode = recognitionMode;
-        listening = false;
-        recognitionMode = MODE_IDLE;
-        ArrayList<String> phrases = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-
-        if (finishedMode == MODE_WAKE_WORD) {
-            String command = commandAfterWakeWord(phrases);
-            if (command == null) {
-                scheduleWakeWordListening(700L);
-                return;
-            }
-            if (command.isEmpty()) {
-                setDashboardState("listen");
-                main.postDelayed(this::startOneShotListening, 350L);
-                return;
-            }
-            sendCommand(command);
-            return;
-        }
-
-        if (phrases == null || phrases.isEmpty() || phrases.get(0).trim().isEmpty()) {
+        if (phrases == null
+                || phrases.isEmpty()
+                || phrases.get(0).trim().isEmpty()) {
             setDashboardState("idle");
-            scheduleWakeWordListening(800L);
+            main.postDelayed(this::startWakeWord, 600L);
             return;
         }
+
         sendCommand(phrases.get(0).trim());
     }
 
-    @Override public void onPartialResults(Bundle results) {}
-    @Override public void onEvent(int type, Bundle params) {}
+    @Override
+    public void onPartialResults(Bundle results) {
+    }
+
+    @Override
+    public void onEvent(int type, Bundle params) {
+    }
 
     private String trimSlash(String value) {
-        while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
+        }
         return value;
     }
 
     private void hideSystemUi() {
         View decorView = getWindow().getDecorView();
         decorView.post(() -> {
-            if (destroyed) return;
+            if (destroyed) {
+                return;
+            }
+
             if (android.os.Build.VERSION.SDK_INT >= 30) {
-                WindowInsetsController controller = decorView.getWindowInsetsController();
+                WindowInsetsController controller =
+                    decorView.getWindowInsetsController();
                 if (controller != null) {
                     controller.hide(WindowInsets.Type.systemBars());
                     controller.setSystemBarsBehavior(
-                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                        WindowInsetsController
+                            .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
                 }
             } else {
                 decorView.setSystemUiVisibility(
@@ -757,20 +911,28 @@ public class MainActivity extends Activity implements RecognitionListener {
     protected void onResume() {
         super.onResume();
         activityVisible = true;
+
         if (dashboard != null) {
             hideSystemUi();
             dashboard.onResume();
-            scheduleWakeWordListening(900L);
+            main.postDelayed(this::startWakeWord, 700L);
         }
-        if (updateManager != null) updateManager.resumePendingInstall();
+
+        if (updateManager != null) {
+            updateManager.resumePendingInstall();
+        }
     }
 
     @Override
     protected void onPause() {
         activityVisible = false;
-        cancelWakeWordRestart();
-        stopCurrentRecognition();
-        if (dashboard != null) dashboard.onPause();
+        stopWakeWord();
+        stopCommandRecognition();
+
+        if (dashboard != null) {
+            dashboard.onPause();
+        }
+
         super.onPause();
     }
 
@@ -778,31 +940,42 @@ public class MainActivity extends Activity implements RecognitionListener {
     protected void onDestroy() {
         destroyed = true;
         activityVisible = false;
-        cancelWakeWordRestart();
-        restoreRecognizerTone();
+        stopWakeWord();
+
         if (pendingWebPermission != null) {
             pendingWebPermission.deny();
             pendingWebPermission = null;
         }
+
+        if (wakeWord != null) {
+            wakeWord.delete();
+            wakeWord = null;
+        }
+
         if (recognizer != null) {
             recognizer.destroy();
             recognizer = null;
         }
+
         if (tts != null) {
             tts.stop();
             tts.shutdown();
             tts = null;
         }
+
         io.shutdownNow();
+
         if (updateManager != null) {
             updateManager.close();
             updateManager = null;
         }
+
         if (dashboard != null) {
             dashboard.stopLoading();
             dashboard.destroy();
             dashboard = null;
         }
+
         super.onDestroy();
     }
 }
