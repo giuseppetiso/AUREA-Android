@@ -42,14 +42,12 @@
         <activity
             android:name=".VoiceGateActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
-            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Aurea.IdentityOverlay"
             android:exported="false" />
 
         <activity
             android:name=".FaceGateActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
-            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.Aurea.IdentityOverlay"
             android:exported="false" />
     </application>
