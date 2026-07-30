@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Application;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
@@ -28,6 +29,12 @@ public final class AureaApplication extends Application
     private static final long FACE_DELAY_MS = 1100L;
     private static final long MIN_VOICE_FLOW_MS = 5200L;
 
+    private static final String APP_PREFS = "aurea";
+    private static final String PREF_HA_URL = "ha_url";
+    private static final String PREF_DASHBOARD_URL = "dashboard_url";
+    private static final String DEFAULT_HA_URL = "http://192.168.178.72:8123";
+    private static final String TABLET_DASHBOARD_PATH = "/lovelace/casa-tablet";
+
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private IdentitySessionStore identityStore;
@@ -40,8 +47,35 @@ public final class AureaApplication extends Application
     @Override
     public void onCreate() {
         super.onCreate();
+        migrateTabletDashboardUrl();
         identityStore = new IdentitySessionStore(this);
         registerActivityLifecycleCallbacks(this);
+    }
+
+    /**
+     * Mantiene il token e l'indirizzo Home Assistant già configurati, ma forza
+     * l'avvio sulla vista Lovelace dedicata al tablet. La scrittura avviene
+     * prima che MainActivity legga le preferenze.
+     */
+    private void migrateTabletDashboardUrl() {
+        SharedPreferences prefs = getSharedPreferences(APP_PREFS, MODE_PRIVATE);
+        String haUrl = prefs.getString(PREF_HA_URL, DEFAULT_HA_URL);
+        if (haUrl == null || haUrl.trim().isEmpty()) {
+            haUrl = DEFAULT_HA_URL;
+        } else {
+            haUrl = haUrl.trim();
+        }
+        while (haUrl.endsWith("/")) {
+            haUrl = haUrl.substring(0, haUrl.length() - 1);
+        }
+
+        String desiredUrl = haUrl + TABLET_DASHBOARD_PATH;
+        String storedUrl = prefs.getString(PREF_DASHBOARD_URL, "");
+        if (!desiredUrl.equals(storedUrl)) {
+            prefs.edit()
+                .putString(PREF_DASHBOARD_URL, desiredUrl)
+                .apply();
+        }
     }
 
     @Override
