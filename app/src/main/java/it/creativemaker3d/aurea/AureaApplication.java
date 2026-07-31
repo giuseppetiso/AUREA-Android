@@ -33,7 +33,7 @@ public final class AureaApplication extends Application
     private static final String PREF_HA_URL = "ha_url";
     private static final String PREF_DASHBOARD_URL = "dashboard_url";
     private static final String DEFAULT_HA_URL = "http://192.168.178.72:8123";
-    private static final String TABLET_DASHBOARD_PATH = "/lovelace/casa-tablet";
+    private static final String TABLET_DASHBOARD_PATH = "/lovelace/home";
 
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -54,8 +54,8 @@ public final class AureaApplication extends Application
 
     /**
      * Mantiene il token e l'indirizzo Home Assistant già configurati, ma forza
-     * l'avvio sulla vista Lovelace dedicata al tablet. La scrittura avviene
-     * prima che MainActivity legga le preferenze.
+     * l'avvio sulla vista Home della plancia tablet. La scrittura avviene prima
+     * che MainActivity legga le preferenze.
      */
     private void migrateTabletDashboardUrl() {
         SharedPreferences prefs = getSharedPreferences(APP_PREFS, MODE_PRIVATE);
