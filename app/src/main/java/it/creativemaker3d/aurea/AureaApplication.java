@@ -21,6 +21,7 @@ import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 /**
@@ -28,7 +29,8 @@ import android.widget.Toast;
  *
  * La dashboard è sempre l'attività principale. Volto e voce vengono mostrati
  * come pannelli trasparenti sopra il riquadro sinistro dell'avatar soltanto
- * quando il tablet non è ancora fidato.
+ * quando il tablet non è ancora fidato o quando Giuseppe richiede l'accesso
+ * amministratore alla gestione delle persone.
  */
 public final class AureaApplication extends Application
         implements Application.ActivityLifecycleCallbacks {
@@ -47,6 +49,7 @@ public final class AureaApplication extends Application
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private IdentitySessionStore identityStore;
+    private AdminAccessStore adminStore;
     private boolean faceGateActive;
     private boolean voiceGateActive;
     private boolean redirecting;
@@ -58,6 +61,7 @@ public final class AureaApplication extends Application
         super.onCreate();
         migrateTabletDashboardUrl();
         identityStore = new IdentitySessionStore(this);
+        adminStore = new AdminAccessStore(this);
         registerActivityLifecycleCallbacks(this);
     }
 
@@ -91,6 +95,9 @@ public final class AureaApplication extends Application
             faceGateActive = true;
             redirecting = false;
             configureIdentityWindow(activity);
+            if (adminStore.isAccessRequested()) {
+                main.post(() -> secureAdminFaceGate(activity));
+            }
             return;
         }
 
@@ -99,6 +106,28 @@ public final class AureaApplication extends Application
             voiceGateOpenedAt = SystemClock.elapsedRealtime();
             redirecting = false;
             configureIdentityWindow(activity);
+
+            if (adminStore.isAccessRequested()) {
+                String person = activity.getIntent() == null
+                    ? ""
+                    : activity.getIntent().getStringExtra("aurea_recognized_person");
+                person = person == null ? "" : person.trim();
+                boolean validAdmin = AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(person)
+                    && new VoiceProfileStore(this).hasProfile(person);
+                if (!validAdmin) {
+                    voiceGateActive = false;
+                    faceGateActive = false;
+                    adminStore.clearRequest();
+                    Toast.makeText(
+                        this,
+                        "Accesso riservato a Giuseppe",
+                        Toast.LENGTH_LONG
+                    ).show();
+                    main.post(activity::finish);
+                    return;
+                }
+                main.post(() -> secureAdminVoiceGate(activity));
+            }
             return;
         }
 
@@ -117,6 +146,35 @@ public final class AureaApplication extends Application
         if (!person.isEmpty() && voiceGateActive) {
             long elapsed = SystemClock.elapsedRealtime() - voiceGateOpenedAt;
             boolean profileExists = new VoiceProfileStore(this).hasProfile(person);
+
+            if (adminStore.isAccessRequested()) {
+                boolean verifiedAdmin = AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(person)
+                    && profileExists
+                    && elapsed >= MIN_VOICE_FLOW_MS;
+
+                voiceGateActive = false;
+                faceGateActive = false;
+                redirecting = false;
+                removeOtherAureaTasks(activity);
+
+                if (verifiedAdmin && adminStore.grant(person)) {
+                    Toast.makeText(
+                        this,
+                        "Amministratore verificato",
+                        Toast.LENGTH_SHORT
+                    ).show();
+                    main.postDelayed(() -> launchPeopleManager(activity), 250L);
+                } else {
+                    adminStore.revoke();
+                    Toast.makeText(
+                        this,
+                        "Verifica amministratore non riuscita",
+                        Toast.LENGTH_LONG
+                    ).show();
+                }
+                return;
+            }
+
             if (profileExists && elapsed >= MIN_VOICE_FLOW_MS) {
                 identityStore.trust(person);
             } else {
@@ -130,6 +188,21 @@ public final class AureaApplication extends Application
         }
 
         if (!person.isEmpty() && faceGateActive) {
+            if (adminStore.isAccessRequested()
+                    && !AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(person)) {
+                faceGateActive = false;
+                voiceGateActive = false;
+                redirecting = false;
+                adminStore.revoke();
+                removeOtherAureaTasks(activity);
+                Toast.makeText(
+                    this,
+                    "Accesso riservato a Giuseppe",
+                    Toast.LENGTH_LONG
+                ).show();
+                return;
+            }
+
             faceGateActive = false;
             launchVoiceGate(activity, person);
             return;
@@ -139,6 +212,9 @@ public final class AureaApplication extends Application
             faceGateActive = false;
             redirecting = false;
             skipRecognitionUntilNextProcess = true;
+            if (adminStore.isAccessRequested()) {
+                adminStore.revoke();
+            }
             removeOtherAureaTasks(activity);
             return;
         }
@@ -314,6 +390,81 @@ public final class AureaApplication extends Application
         voice.putExtra("aurea_identity_overlay", true);
         transientDashboard.startActivity(voice);
         transientDashboard.finish();
+    }
+
+    private void launchPeopleManager(Activity dashboard) {
+        if (dashboard.isFinishing() || dashboard.isDestroyed()
+                || !adminStore.hasValidGrant()) {
+            return;
+        }
+        Intent manager = new Intent(dashboard, PeopleManagerActivity.class);
+        dashboard.startActivity(manager);
+    }
+
+    private void secureAdminFaceGate(Activity activity) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
+        applyAdminGate(activity, activity.getWindow().getDecorView(), false);
+    }
+
+    private void secureAdminVoiceGate(Activity activity) {
+        if (activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
+        applyAdminGate(activity, activity.getWindow().getDecorView(), true);
+    }
+
+    private void applyAdminGate(Activity activity, View view, boolean voiceStage) {
+        if (view instanceof TextView) {
+            TextView textView = (TextView) view;
+            String value = textView.getText() == null
+                ? ""
+                : textView.getText().toString().trim();
+
+            if (!voiceStage && value.equals("AUREA ti sta riconoscendo")) {
+                textView.setText("Accesso amministratore");
+            } else if (!voiceStage
+                    && value.equals("Guarda la fotocamera per un momento.")) {
+                textView.setText(
+                    AdminAccessStore.ADMIN_NAME
+                        + ", guarda la fotocamera per autorizzare la gestione persone."
+                );
+            } else if (voiceStage && value.equals("Conferma vocale")) {
+                textView.setText("Conferma amministratore");
+            }
+        }
+
+        if (view instanceof Button) {
+            Button button = (Button) view;
+            String label = button.getText() == null
+                ? ""
+                : button.getText().toString().trim();
+
+            boolean registrationButton = label.equals("Registra un'altra persona")
+                || label.equals("Registra di nuovo la voce");
+            if (registrationButton) {
+                button.setVisibility(View.GONE);
+            }
+
+            if (label.startsWith("Continua senza")
+                    || label.startsWith("Annulla e torna")) {
+                button.setText("Annulla");
+                button.setVisibility(View.VISIBLE);
+                button.setOnClickListener(v -> {
+                    adminStore.revoke();
+                    activity.finish();
+                });
+            }
+        }
+
+        if (!(view instanceof ViewGroup)) {
+            return;
+        }
+        ViewGroup group = (ViewGroup) view;
+        for (int index = 0; index < group.getChildCount(); index++) {
+            applyAdminGate(activity, group.getChildAt(index), voiceStage);
+        }
     }
 
     private void configureIdentityWindow(Activity activity) {
