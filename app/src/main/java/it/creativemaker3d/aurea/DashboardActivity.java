@@ -3,6 +3,8 @@ package it.creativemaker3d.aurea;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -24,19 +26,45 @@ import android.widget.Toast;
  * mostrato alcun pulsante flottante sopra la dashboard.
  */
 public final class DashboardActivity extends MainActivity {
+    private static final long TOOLS_RETRY_MS = 1500L;
+
     private final ToolsBridge toolsBridge = new ToolsBridge();
+    private final Handler integrationHandler = new Handler(Looper.getMainLooper());
+    private final Runnable integrationTask = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            installToolsIntegration();
+            integrationHandler.postDelayed(this, TOOLS_RETRY_MS);
+        }
+    };
+
     private boolean forwardingIdentityResult;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        scheduleToolsIntegration();
+        startToolsIntegration();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        scheduleToolsIntegration();
+        startToolsIntegration();
+    }
+
+    @Override
+    protected void onPause() {
+        integrationHandler.removeCallbacks(integrationTask);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        integrationHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     @Override
@@ -58,12 +86,9 @@ public final class DashboardActivity extends MainActivity {
         overridePendingTransition(0, 0);
     }
 
-    private void scheduleToolsIntegration() {
-        View decor = getWindow().getDecorView();
-        decor.postDelayed(this::installToolsIntegration, 120L);
-        decor.postDelayed(this::installToolsIntegration, 700L);
-        decor.postDelayed(this::installToolsIntegration, 1700L);
-        decor.postDelayed(this::installToolsIntegration, 3200L);
+    private void startToolsIntegration() {
+        integrationHandler.removeCallbacks(integrationTask);
+        integrationHandler.postDelayed(integrationTask, 250L);
     }
 
     private void installToolsIntegration() {
@@ -81,25 +106,34 @@ public final class DashboardActivity extends MainActivity {
             "(function(){"
                 + "if(window.__aureaToolsBarInstalled)return;"
                 + "window.__aureaToolsBarInstalled=true;"
+                + "var normalize=function(v){return String(v||'').trim()"
+                + ".replace(/\\s+/g,' ').toLowerCase();};"
+                + "var isToolsNode=function(n){"
+                + "if(!n)return false;"
+                + "var values=[];"
+                + "values.push(n.innerText||n.textContent||'');"
+                + "values.push(n.icon||'');"
+                + "if(n.getAttribute){"
+                + "values.push(n.getAttribute('aria-label')||'');"
+                + "values.push(n.getAttribute('title')||'');"
+                + "values.push(n.getAttribute('href')||'');"
+                + "values.push(n.getAttribute('icon')||'');"
+                + "values.push(n.getAttribute('data-icon')||'');"
+                + "}"
+                + "var v=normalize(values.join(' '));"
+                + "return v.indexOf('strumenti aurea')>=0"
+                + "||v.indexOf('aurea://tools')>=0"
+                + "||v.indexOf('mdi:cog')>=0;"
+                + "};"
                 + "document.addEventListener('click',function(e){"
                 + "var p=e.composedPath?e.composedPath():[];"
-                + "var hit=p.some(function(n){"
-                + "if(!n)return false;"
-                + "var t=((n.innerText||n.textContent)||'').trim()"
-                + ".replace(/\\s+/g,' ');"
-                + "var a='';"
-                + "if(n.getAttribute){a=(n.getAttribute('aria-label')||'')+' '"
-                + "+(n.getAttribute('title')||'')+' '"
-                + "+(n.getAttribute('href')||'');}"
-                + "var v=(t+' '+a).toLowerCase();"
-                + "return v.indexOf('strumenti aurea')>=0"
-                + "||v.indexOf('aurea://tools')>=0;"
-                + "});"
-                + "if(hit){"
-                + "e.preventDefault();e.stopImmediatePropagation();"
+                + "var hit=p.some(isToolsNode);"
+                + "if(!hit)return;"
+                + "e.preventDefault();"
+                + "e.stopPropagation();"
+                + "e.stopImmediatePropagation();"
                 + "if(window.AureaToolsNative){"
                 + "window.AureaToolsNative.openTools();"
-                + "}"
                 + "}"
                 + "},true);"
                 + "})();",
