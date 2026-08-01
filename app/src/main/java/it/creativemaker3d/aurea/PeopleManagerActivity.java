@@ -39,6 +39,7 @@ public final class PeopleManagerActivity extends Activity {
     private VoiceProfileStore voiceStore;
     private IdentitySessionStore identityStore;
     private AdminAccessStore adminStore;
+    private PersonPreferencesStore preferencesStore;
     private boolean interfaceReady;
 
     @Override
@@ -55,6 +56,7 @@ public final class PeopleManagerActivity extends Activity {
         adminStore.touch();
         voiceStore = new VoiceProfileStore(this);
         identityStore = new IdentitySessionStore(this);
+        preferencesStore = new PersonPreferencesStore(this);
         buildInterface();
         interfaceReady = true;
         hideSystemUi();
@@ -88,9 +90,18 @@ public final class PeopleManagerActivity extends Activity {
         privacy.setPadding(0, 0, 0, dp(14));
         root.addView(privacy, fullWidth());
 
+        LinearLayout topActions = new LinearLayout(this);
+        topActions.setOrientation(LinearLayout.HORIZONTAL);
+
         Button addPerson = button("Aggiungi una nuova persona");
         addPerson.setOnClickListener(view -> startNewPersonEnrollment());
-        root.addView(addPerson, fullWidthWithBottom(dp(12)));
+        topActions.addView(addPerson, weightedButton());
+
+        Button preferences = button("Preferenze nomi e saluti");
+        preferences.setOnClickListener(view -> openPeoplePreferences());
+        topActions.addView(preferences, weightedButtonWithStart(dp(8)));
+
+        root.addView(topActions, fullWidthWithBottom(dp(12)));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -191,6 +202,11 @@ public final class PeopleManagerActivity extends Activity {
             status += " · Profilo attivo";
         }
 
+        PersonPreferencesStore.Profile preferences = preferencesStore.load(name);
+        if (!preferences.spokenName.equals(name)) {
+            status += " · Chiamato “" + preferences.spokenName + "”";
+        }
+
         TextView profileStatus = text(status, 14, Color.rgb(155, 205, 229));
         profileStatus.setPadding(0, dp(3), 0, dp(10));
         card.addView(profileStatus, fullWidth());
@@ -216,6 +232,13 @@ public final class PeopleManagerActivity extends Activity {
 
         card.addView(actions, fullWidth());
         return card;
+    }
+
+    private void openPeoplePreferences() {
+        if (!ensureAdminAccess()) {
+            return;
+        }
+        startActivity(new Intent(this, PeoplePreferencesActivity.class));
     }
 
     private void startNewPersonEnrollment() {
@@ -278,6 +301,7 @@ public final class PeopleManagerActivity extends Activity {
         }
         removeFaceProfile(name);
         voiceStore.deleteProfile(name);
+        preferencesStore.delete(name);
         if (name.equalsIgnoreCase(identityStore.trustedPerson())) {
             identityStore.clearTrust();
         }

@@ -53,6 +53,12 @@
             android:exported="false" />
 
         <activity
+            android:name=".PeoplePreferencesActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="sensorLandscape"
+            android:exported="false" />
+
+        <activity
             android:name=".VoiceGateActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:theme="@style/Theme.Aurea.IdentityOverlay"
