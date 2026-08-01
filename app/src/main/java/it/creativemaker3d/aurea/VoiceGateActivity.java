@@ -11,6 +11,8 @@ import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -24,6 +26,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,6 +36,7 @@ public final class VoiceGateActivity extends Activity {
     private static final int SAMPLE_RATE = 16000;
     private static final int MAX_RECORD_SECONDS = 4;
     private static final int REQUIRED_ENROLLMENT_SAMPLES = 3;
+    private static final String GREETING_UTTERANCE = "aurea-person-greeting";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService audioExecutor = Executors.newSingleThreadExecutor();
@@ -47,9 +51,12 @@ public final class VoiceGateActivity extends Activity {
     private Button continueButton;
 
     private VoiceProfileStore profileStore;
+    private TextToSpeech tts;
     private String personName;
     private boolean enrollmentMode;
     private boolean openingMain;
+    private boolean ttsReady;
+    private boolean greetingStarted;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -64,6 +71,7 @@ public final class VoiceGateActivity extends Activity {
         personName = personName.trim();
 
         profileStore = new VoiceProfileStore(this);
+        initTextToSpeech();
         buildInterface();
         hideSystemUi();
 
@@ -76,6 +84,39 @@ public final class VoiceGateActivity extends Activity {
         } else {
             configureMode();
         }
+    }
+
+    private void initTextToSpeech() {
+        tts = new TextToSpeech(getApplicationContext(), status -> main.post(() -> {
+            if (openingMain || tts == null || status != TextToSpeech.SUCCESS) {
+                return;
+            }
+
+            int languageResult = tts.setLanguage(Locale.ITALIAN);
+            tts.setSpeechRate(0.94f);
+            ttsReady = languageResult != TextToSpeech.LANG_MISSING_DATA
+                && languageResult != TextToSpeech.LANG_NOT_SUPPORTED;
+
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override
+                public void onStart(String utteranceId) {
+                }
+
+                @Override
+                public void onDone(String utteranceId) {
+                    if (GREETING_UTTERANCE.equals(utteranceId)) {
+                        main.post(() -> openMainActivity(personName));
+                    }
+                }
+
+                @Override
+                public void onError(String utteranceId) {
+                    if (GREETING_UTTERANCE.equals(utteranceId)) {
+                        main.post(() -> openMainActivity(personName));
+                    }
+                }
+            });
+        }));
     }
 
     private void buildInterface() {
@@ -193,7 +234,7 @@ public final class VoiceGateActivity extends Activity {
     }
 
     private void startCapture() {
-        if (openingMain || !capturing.compareAndSet(false, true)) {
+        if (openingMain || greetingStarted || !capturing.compareAndSet(false, true)) {
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
@@ -354,13 +395,13 @@ public final class VoiceGateActivity extends Activity {
         statusView.setText("Voce registrata localmente per " + personName + ".");
         primaryButton.setText("Continua");
         primaryButton.setEnabled(true);
-        primaryButton.setOnClickListener(v -> openMainActivity(personName));
+        primaryButton.setOnClickListener(v -> greetAndOpenMain());
         Toast.makeText(
             this,
             "Registrazione vocale completata",
             Toast.LENGTH_LONG
         ).show();
-        main.postDelayed(() -> openMainActivity(personName), 1200L);
+        main.postDelayed(this::greetAndOpenMain, 1000L);
     }
 
     private void handleVerification(float[] signature) {
@@ -378,7 +419,7 @@ public final class VoiceGateActivity extends Activity {
         if (similarity >= profile.threshold) {
             statusView.setText("Voce confermata. Ciao " + personName + ".");
             primaryButton.setText("Confermato");
-            main.postDelayed(() -> openMainActivity(personName), 750L);
+            main.postDelayed(this::greetAndOpenMain, 450L);
         } else {
             statusView.setText(
                 "Voce non riconosciuta. Riprova pronunciando la frase completa."
@@ -388,15 +429,48 @@ public final class VoiceGateActivity extends Activity {
         }
     }
 
+    private void greetAndOpenMain() {
+        if (openingMain || greetingStarted) {
+            return;
+        }
+        greetingStarted = true;
+        capturing.set(false);
+
+        primaryButton.setEnabled(false);
+        resetButton.setEnabled(false);
+        continueButton.setEnabled(false);
+        statusView.setText("Ciao " + personName + ", che piacere vederti.");
+
+        if (!ttsReady || tts == null) {
+            main.postDelayed(() -> openMainActivity(personName), 500L);
+            return;
+        }
+
+        int result = tts.speak(
+            "Ciao " + personName + ", che piacere vederti.",
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            GREETING_UTTERANCE
+        );
+        if (result == TextToSpeech.ERROR) {
+            main.postDelayed(() -> openMainActivity(personName), 350L);
+            return;
+        }
+
+        main.postDelayed(() -> {
+            if (!openingMain) {
+                openMainActivity(personName);
+            }
+        }, 4500L);
+    }
+
     private void openMainActivity(String recognizedName) {
         if (openingMain) {
             return;
         }
         openingMain = true;
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(
-            Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP
-        );
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
         if (recognizedName != null && !recognizedName.trim().isEmpty()) {
             intent.putExtra(
                 "aurea_recognized_person",
@@ -455,7 +529,15 @@ public final class VoiceGateActivity extends Activity {
     @Override
     protected void onDestroy() {
         openingMain = true;
+        capturing.set(false);
         audioExecutor.shutdownNow();
+
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+            tts = null;
+        }
+
         super.onDestroy();
     }
 
