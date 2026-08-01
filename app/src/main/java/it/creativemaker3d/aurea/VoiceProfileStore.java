@@ -11,6 +11,7 @@ import java.util.Locale;
 
 final class VoiceProfileStore {
     private static final String PREFS = "aurea_voice_profiles";
+    private static final float MAX_EFFECTIVE_THRESHOLD = 0.85f;
 
     private final Context context;
 
@@ -53,10 +54,11 @@ final class VoiceProfileStore {
             for (int i = 0; i < signature.length; i++) {
                 signature[i] = bytes.getFloat();
             }
-            float threshold = prefs().getFloat(
+            float storedThreshold = prefs().getFloat(
                 key(name) + "_threshold",
-                0.88f
+                0.85f
             );
+            float threshold = Math.min(storedThreshold, MAX_EFFECTIVE_THRESHOLD);
             return new VoiceProfile(signature, threshold);
         } catch (Exception ignored) {
             return null;
