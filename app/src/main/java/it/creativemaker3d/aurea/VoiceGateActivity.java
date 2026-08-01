@@ -26,7 +26,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -52,6 +51,7 @@ public final class VoiceGateActivity extends Activity {
     private Button continueButton;
 
     private VoiceProfileStore profileStore;
+    private PersonPreferencesStore preferencesStore;
     private TextToSpeech tts;
     private String personName;
     private boolean enrollmentMode;
@@ -83,6 +83,7 @@ public final class VoiceGateActivity extends Activity {
         adminVerification = new AdminAccessStore(this).isAccessRequested();
 
         profileStore = new VoiceProfileStore(this);
+        preferencesStore = new PersonPreferencesStore(this);
         initTextToSpeech();
         buildInterface();
         hideSystemUi();
@@ -446,7 +447,12 @@ public final class VoiceGateActivity extends Activity {
                 return;
             }
 
-            statusView.setText("Voce confermata. " + personalGreeting());
+            String greeting = personalGreeting();
+            statusView.setText(
+                greeting.isEmpty()
+                    ? "Voce confermata."
+                    : "Voce confermata. " + greeting
+            );
             primaryButton.setText("Confermato");
             main.postDelayed(this::greetAndOpenMain, 450L);
         } else {
@@ -469,8 +475,14 @@ public final class VoiceGateActivity extends Activity {
         resetButton.setEnabled(false);
         continueButton.setEnabled(false);
         String greeting = personalGreeting();
-        statusView.setText(greeting);
 
+        if (greeting.isEmpty()) {
+            statusView.setText("Identità confermata.");
+            main.postDelayed(() -> openMainActivity(personName), 300L);
+            return;
+        }
+
+        statusView.setText(greeting);
         if (!ttsReady || tts == null) {
             main.postDelayed(() -> openMainActivity(personName), 500L);
             return;
@@ -495,18 +507,9 @@ public final class VoiceGateActivity extends Activity {
     }
 
     private String personalGreeting() {
-        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        String opening;
-        if (hour >= 5 && hour < 12) {
-            opening = "Buongiorno";
-        } else if (hour >= 12 && hour < 18) {
-            opening = "Buon pomeriggio";
-        } else if (hour >= 18) {
-            opening = "Buonasera";
-        } else {
-            opening = "Ciao";
-        }
-        return opening + " " + personName + ", che piacere vederti.";
+        return preferencesStore == null
+            ? "Ciao " + personName + ", che piacere vederti."
+            : preferencesStore.buildGreeting(personName);
     }
 
     private void openMainActivity(String recognizedName) {
