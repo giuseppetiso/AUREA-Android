@@ -57,13 +57,22 @@ public final class VoiceGateActivity extends Activity {
     private boolean openingMain;
     private boolean ttsReady;
     private boolean greetingStarted;
+    private boolean forcedEnrollment;
+    private boolean returnToPeopleManager;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        personName = getIntent().getStringExtra("aurea_recognized_person");
+        Intent source = getIntent();
+        forcedEnrollment = source != null
+            && source.getBooleanExtra("aurea_force_voice_enrollment", false);
+        returnToPeopleManager = source != null
+            && source.getBooleanExtra("aurea_return_to_people_manager", false);
+        personName = source == null
+            ? null
+            : source.getStringExtra("aurea_recognized_person");
         if (personName == null || personName.trim().isEmpty()) {
             openMainActivity(null);
             return;
@@ -150,7 +159,11 @@ public final class VoiceGateActivity extends Activity {
         root.addView(resetButton, buttonParams());
 
         continueButton = new Button(this);
-        continueButton.setText("Continua senza verifica vocale");
+        continueButton.setText(
+            returnToPeopleManager
+                ? "Annulla e torna ai profili"
+                : "Continua senza verifica vocale"
+        );
         continueButton.setOnClickListener(v -> openMainActivity(personName));
         root.addView(continueButton, buttonParams());
 
@@ -190,7 +203,9 @@ public final class VoiceGateActivity extends Activity {
     }
 
     private void configureMode() {
-        if (profileStore.hasProfile(personName)) {
+        if (forcedEnrollment) {
+            enterEnrollmentMode();
+        } else if (profileStore.hasProfile(personName)) {
             enterVerificationMode();
         } else {
             enterEnrollmentMode();
@@ -469,6 +484,15 @@ public final class VoiceGateActivity extends Activity {
             return;
         }
         openingMain = true;
+
+        if (returnToPeopleManager) {
+            Intent manager = new Intent(this, PeopleManagerActivity.class);
+            manager.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(manager);
+            finish();
+            return;
+        }
+
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
         if (recognizedName != null && !recognizedName.trim().isEmpty()) {
