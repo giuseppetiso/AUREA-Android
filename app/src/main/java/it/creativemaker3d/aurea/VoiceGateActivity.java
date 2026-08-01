@@ -26,6 +26,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,6 +60,7 @@ public final class VoiceGateActivity extends Activity {
     private boolean greetingStarted;
     private boolean forcedEnrollment;
     private boolean returnToPeopleManager;
+    private boolean adminVerification;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -78,6 +80,7 @@ public final class VoiceGateActivity extends Activity {
             return;
         }
         personName = personName.trim();
+        adminVerification = new AdminAccessStore(this).isAccessRequested();
 
         profileStore = new VoiceProfileStore(this);
         initTextToSpeech();
@@ -230,15 +233,17 @@ public final class VoiceGateActivity extends Activity {
     private void enterVerificationMode() {
         enrollmentMode = false;
         enrollmentSamples.clear();
-        titleView.setText("Conferma vocale");
+        titleView.setText(adminVerification ? "Conferma amministratore" : "Conferma vocale");
         phraseView.setText("«" + phrase() + "»");
         statusView.setText(
-            "AUREA confronterà la voce con il profilo di " + personName + "."
+            adminVerification
+                ? "Giuseppe, conferma la tua voce per aprire Gestione persone."
+                : "AUREA confronterà la voce con il profilo di " + personName + "."
         );
         primaryButton.setText("Avvia verifica vocale");
         primaryButton.setEnabled(true);
         primaryButton.setOnClickListener(v -> startCapture());
-        resetButton.setVisibility(View.VISIBLE);
+        resetButton.setVisibility(adminVerification ? View.GONE : View.VISIBLE);
         continueButton.setVisibility(View.VISIBLE);
 
         main.postDelayed(() -> {
@@ -432,7 +437,16 @@ public final class VoiceGateActivity extends Activity {
             signature
         );
         if (similarity >= profile.threshold) {
-            statusView.setText("Voce confermata. Ciao " + personName + ".");
+            if (adminVerification) {
+                statusView.setText("Amministratore confermato.");
+                primaryButton.setText("Confermato");
+                primaryButton.setEnabled(false);
+                continueButton.setEnabled(false);
+                main.postDelayed(() -> openMainActivity(personName), 450L);
+                return;
+            }
+
+            statusView.setText("Voce confermata. " + personalGreeting());
             primaryButton.setText("Confermato");
             main.postDelayed(this::greetAndOpenMain, 450L);
         } else {
@@ -454,7 +468,8 @@ public final class VoiceGateActivity extends Activity {
         primaryButton.setEnabled(false);
         resetButton.setEnabled(false);
         continueButton.setEnabled(false);
-        statusView.setText("Ciao " + personName + ", che piacere vederti.");
+        String greeting = personalGreeting();
+        statusView.setText(greeting);
 
         if (!ttsReady || tts == null) {
             main.postDelayed(() -> openMainActivity(personName), 500L);
@@ -462,7 +477,7 @@ public final class VoiceGateActivity extends Activity {
         }
 
         int result = tts.speak(
-            "Ciao " + personName + ", che piacere vederti.",
+            greeting,
             TextToSpeech.QUEUE_FLUSH,
             null,
             GREETING_UTTERANCE
@@ -477,6 +492,21 @@ public final class VoiceGateActivity extends Activity {
                 openMainActivity(personName);
             }
         }, 4500L);
+    }
+
+    private String personalGreeting() {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        String opening;
+        if (hour >= 5 && hour < 12) {
+            opening = "Buongiorno";
+        } else if (hour >= 12 && hour < 18) {
+            opening = "Buon pomeriggio";
+        } else if (hour >= 18) {
+            opening = "Buonasera";
+        } else {
+            opening = "Ciao";
+        }
+        return opening + " " + personName + ", che piacere vederti.";
     }
 
     private void openMainActivity(String recognizedName) {
@@ -522,7 +552,9 @@ public final class VoiceGateActivity extends Activity {
             titleView.setText("Verifica vocale non disponibile");
             phraseView.setText("");
             statusView.setText(
-                "Consenti il microfono oppure continua senza verifica vocale."
+                adminVerification
+                    ? "Il microfono è obbligatorio per l'accesso amministratore."
+                    : "Consenti il microfono oppure continua senza verifica vocale."
             );
             primaryButton.setVisibility(View.GONE);
             resetButton.setVisibility(View.GONE);
