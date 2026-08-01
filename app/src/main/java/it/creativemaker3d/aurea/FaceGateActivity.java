@@ -90,6 +90,7 @@ public final class FaceGateActivity extends ComponentActivity {
     private boolean enrollmentActive;
     private boolean recognitionActive;
     private boolean openingMain;
+    private boolean forcedEnrollment;
     private long lastSampleAt;
     private String candidateName;
     private int candidateMatches;
@@ -104,9 +105,9 @@ public final class FaceGateActivity extends ComponentActivity {
         buildInterface();
         hideSystemUi();
 
-        boolean forceEnrollment = getIntent() != null
+        forcedEnrollment = getIntent() != null
             && getIntent().getBooleanExtra("aurea_force_enrollment", false);
-        if (forceEnrollment || profiles.isEmpty()) {
+        if (forcedEnrollment || profiles.isEmpty()) {
             enterEnrollmentMode();
         } else {
             enterRecognitionMode();
@@ -612,6 +613,17 @@ public final class FaceGateActivity extends ComponentActivity {
 
         if (cameraProvider != null) {
             cameraProvider.unbindAll();
+        }
+
+        if (forcedEnrollment
+                && recognizedName != null
+                && !recognizedName.trim().isEmpty()) {
+            Intent voice = new Intent(this, VoiceGateActivity.class);
+            voice.putExtra("aurea_recognized_person", recognizedName.trim());
+            voice.putExtra("aurea_identity_overlay", true);
+            startActivity(voice);
+            finish();
+            return;
         }
 
         Intent intent = new Intent(this, MainActivity.class);
