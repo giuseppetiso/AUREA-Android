@@ -1,9 +1,11 @@
 package it.creativemaker3d.aurea;
 
+import java.util.Arrays;
 import java.util.List;
 
 final class VoiceSignature {
     private static final int SEGMENTS = 12;
+    private static final int TIMBRE_FEATURES = 20;
     private static final double[] BAND_FREQUENCIES = {
         180.0, 260.0, 380.0, 540.0, 760.0,
         1050.0, 1450.0, 2000.0, 2750.0, 3600.0
@@ -30,11 +32,11 @@ final class VoiceSignature {
             rms[i] = value;
             maximum = Math.max(maximum, value);
         }
-        if (maximum < 220.0) {
+        if (maximum < 180.0) {
             return null;
         }
 
-        double threshold = Math.max(170.0, maximum * 0.18);
+        double threshold = Math.max(130.0, maximum * 0.15);
         int first = -1;
         int last = -1;
         for (int i = 0; i < frameCount; i++) {
@@ -54,7 +56,7 @@ final class VoiceSignature {
         int start = first * frame;
         int end = Math.min(pcm.length, (last + 1) * frame);
         int speechLength = end - start;
-        if (speechLength < sampleRate * 0.65) {
+        if (speechLength < sampleRate * 0.50) {
             return null;
         }
 
@@ -174,10 +176,40 @@ final class VoiceSignature {
         if (first == null || second == null || first.length != second.length) {
             return -1f;
         }
+
+        float complete = cosineRange(first, second, 0, first.length);
+        int timbreEnd = Math.min(TIMBRE_FEATURES, first.length);
+        float timbre = cosineRange(first, second, 0, timbreEnd);
+        float prosody = cosineRange(first, second, timbreEnd, first.length);
+
+        if (complete < -0.5f || timbre < -0.5f || prosody < -0.5f) {
+            return complete;
+        }
+
+        float[] comparisons = {complete, timbre, prosody};
+        Arrays.sort(comparisons);
+        float robust = comparisons[0] * 0.15f
+            + comparisons[1] * 0.55f
+            + comparisons[2] * 0.30f
+            + 0.03f;
+        return clamp(robust, -1f, 1f);
+    }
+
+    private static float cosineRange(
+            float[] first,
+            float[] second,
+            int start,
+            int end) {
+        int safeStart = Math.max(0, start);
+        int safeEnd = Math.min(Math.min(first.length, second.length), end);
+        if (safeStart >= safeEnd) {
+            return -1f;
+        }
+
         double dot = 0.0;
         double normFirst = 0.0;
         double normSecond = 0.0;
-        for (int i = 0; i < first.length; i++) {
+        for (int i = safeStart; i < safeEnd; i++) {
             dot += first[i] * second[i];
             normFirst += first[i] * first[i];
             normSecond += second[i] * second[i];
@@ -355,5 +387,9 @@ final class VoiceSignature {
         for (int i = 0; i < vector.length; i++) {
             vector[i] /= norm;
         }
+    }
+
+    private static float clamp(float value, float minimum, float maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
     }
 }
