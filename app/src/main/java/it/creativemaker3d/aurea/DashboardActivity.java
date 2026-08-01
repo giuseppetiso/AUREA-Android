@@ -2,14 +2,22 @@ package it.creativemaker3d.aurea;
 
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.SpeechRecognizer;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Dashboard compatibile con i risultati biometrici ricevuti mentre la Home è
@@ -21,15 +29,18 @@ import android.widget.Toast;
  * quindi una nuova dashboard con lo stesso Intent, permettendo al flusso di
  * proseguire correttamente verso la verifica vocale o Gestione persone.
  *
- * L'accesso agli strumenti comuni viene intercettato dal pulsante Lovelace
- * collocato nella stessa barra di microfono, persona+ e chiusura. Non viene più
- * mostrato alcun pulsante flottante sopra la dashboard.
+ * AUREA Brain intercetta inoltre il testo già riconosciuto e lo invia al
+ * conversation agent configurato, mantenendo una memoria separata per persona.
  */
 public final class DashboardActivity extends MainActivity {
     private static final long TOOLS_RETRY_MS = 1500L;
+    private static final String HA_PREFS = "aurea";
+    private static final String KEY_HA_URL = "ha_url";
+    private static final String KEY_HA_TOKEN = "ha_token";
 
     private final ToolsBridge toolsBridge = new ToolsBridge();
     private final Handler integrationHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService brainIo = Executors.newSingleThreadExecutor();
     private final Runnable integrationTask = new Runnable() {
         @Override
         public void run() {
@@ -41,17 +52,20 @@ public final class DashboardActivity extends MainActivity {
         }
     };
 
+    private AureaBrainClient brainClient;
     private boolean forwardingIdentityResult;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        refreshBrainConnection();
         startToolsIntegration();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        refreshBrainConnection();
         startToolsIntegration();
     }
 
@@ -64,6 +78,7 @@ public final class DashboardActivity extends MainActivity {
     @Override
     protected void onDestroy() {
         integrationHandler.removeCallbacksAndMessages(null);
+        brainIo.shutdownNow();
         super.onDestroy();
     }
 
@@ -84,6 +99,100 @@ public final class DashboardActivity extends MainActivity {
         finish();
         startActivity(freshDashboard);
         overridePendingTransition(0, 0);
+    }
+
+    @Override
+    public void onResults(Bundle results) {
+        ArrayList<String> phrases = results.getStringArrayList(
+            SpeechRecognizer.RESULTS_RECOGNITION
+        );
+        if (phrases == null
+                || phrases.isEmpty()
+                || phrases.get(0).trim().isEmpty()
+                || brainClient == null) {
+            super.onResults(results);
+            return;
+        }
+
+        String command = phrases.get(0).trim();
+        if (!setMainBoolean("commandListening", false)) {
+            super.onResults(results);
+            return;
+        }
+
+        invokeMainState("think");
+        String person = RegisteredUserAccess.currentPerson(this);
+        brainIo.execute(() -> {
+            AureaBrainClient.Result result = brainClient.process(command, person);
+            runOnUiThread(() -> {
+                if (!invokeMainSpeak(result.answer)) {
+                    Toast.makeText(
+                        this,
+                        result.answer,
+                        Toast.LENGTH_LONG
+                    ).show();
+                }
+                if (result.continueConversation) {
+                    Toast.makeText(
+                        this,
+                        "AUREA attende una risposta: pronuncia di nuovo “Aurea”",
+                        Toast.LENGTH_LONG
+                    ).show();
+                }
+            });
+        });
+    }
+
+    private void refreshBrainConnection() {
+        SharedPreferences prefs = getSharedPreferences(HA_PREFS, MODE_PRIVATE);
+        String haUrl = prefs.getString(
+            KEY_HA_URL,
+            "http://192.168.178.72:8123"
+        );
+        String haToken = prefs.getString(KEY_HA_TOKEN, "");
+
+        if (brainClient == null) {
+            brainClient = new AureaBrainClient(this, haUrl, haToken);
+        } else {
+            brainClient.updateConnection(haUrl, haToken);
+        }
+    }
+
+    private boolean setMainBoolean(String fieldName, boolean value) {
+        try {
+            Field field = MainActivity.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.setBoolean(this, value);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean invokeMainSpeak(String text) {
+        try {
+            Method method = MainActivity.class.getDeclaredMethod(
+                "speak",
+                String.class
+            );
+            method.setAccessible(true);
+            method.invoke(this, text);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void invokeMainState(String state) {
+        try {
+            Method method = MainActivity.class.getDeclaredMethod(
+                "setDashboardState",
+                String.class
+            );
+            method.setAccessible(true);
+            method.invoke(this, state);
+        } catch (Exception ignored) {
+        }
     }
 
     private void startToolsIntegration() {
