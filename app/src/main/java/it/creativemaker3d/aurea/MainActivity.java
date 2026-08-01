@@ -299,11 +299,7 @@ public class MainActivity extends Activity implements RecognitionListener {
         }
         stopWakeWord();
         stopCommandRecognition();
-
-        Intent intent = new Intent(this, FaceGateActivity.class);
-        intent.putExtra("aurea_force_enrollment", true);
-        intent.putExtra("aurea_identity_overlay", true);
-        startActivity(intent);
+        startActivity(new Intent(this, PeopleManagerActivity.class));
     }
 
     private void closeAurea() {
