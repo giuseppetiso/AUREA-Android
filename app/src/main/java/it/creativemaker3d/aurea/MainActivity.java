@@ -283,6 +283,8 @@ public class MainActivity extends Activity implements RecognitionListener {
             startOneShotListening();
         } else if ("enroll".equalsIgnoreCase(host)) {
             startPersonEnrollment();
+        } else if ("tools".equalsIgnoreCase(host)) {
+            openUserTools();
         } else if ("close".equalsIgnoreCase(host)) {
             closeAurea();
         } else if ("update".equalsIgnoreCase(host)) {
@@ -291,6 +293,25 @@ public class MainActivity extends Activity implements RecognitionListener {
             }
         }
         return true;
+    }
+
+    private void openUserTools() {
+        if (destroyed) {
+            return;
+        }
+
+        if (!RegisteredUserAccess.isAllowed(this)) {
+            Toast.makeText(
+                this,
+                "Strumenti disponibili dopo il riconoscimento di una persona registrata",
+                Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        stopWakeWord();
+        stopCommandRecognition();
+        startActivity(new Intent(this, UserToolsActivity.class));
     }
 
     private void startPersonEnrollment() {
