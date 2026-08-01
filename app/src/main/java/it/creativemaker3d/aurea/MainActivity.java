@@ -232,6 +232,11 @@ public class MainActivity extends Activity implements RecognitionListener {
         }
 
         @JavascriptInterface
+        public void registerPerson() {
+            main.post(MainActivity.this::startPersonEnrollment);
+        }
+
+        @JavascriptInterface
         public void checkUpdates() {
             main.post(() -> {
                 if (updateManager != null) {
@@ -253,6 +258,10 @@ public class MainActivity extends Activity implements RecognitionListener {
             + "return t==='Parla con AUREA'||t==='Attiva Assist';});"
             + "if(hit){e.preventDefault();e.stopImmediatePropagation();"
             + "window.AureaNative.startListening();return;}"
+            + "var enrollHit=p.some(function(n){var t=text(n);"
+            + "return t==='Registra persona'||t==='Aggiungi persona';});"
+            + "if(enrollHit){e.preventDefault();e.stopImmediatePropagation();"
+            + "window.AureaNative.registerPerson();return;}"
             + "var closeHit=p.some(function(n){return text(n)==='Chiudi AUREA';});"
             + "if(closeHit){e.preventDefault();e.stopImmediatePropagation();"
             + "window.AureaNative.closeApp();return;}"
@@ -272,6 +281,8 @@ public class MainActivity extends Activity implements RecognitionListener {
         String host = uri.getHost();
         if ("listen".equalsIgnoreCase(host)) {
             startOneShotListening();
+        } else if ("enroll".equalsIgnoreCase(host)) {
+            startPersonEnrollment();
         } else if ("close".equalsIgnoreCase(host)) {
             closeAurea();
         } else if ("update".equalsIgnoreCase(host)) {
@@ -280,6 +291,19 @@ public class MainActivity extends Activity implements RecognitionListener {
             }
         }
         return true;
+    }
+
+    private void startPersonEnrollment() {
+        if (destroyed) {
+            return;
+        }
+        stopWakeWord();
+        stopCommandRecognition();
+
+        Intent intent = new Intent(this, FaceGateActivity.class);
+        intent.putExtra("aurea_force_enrollment", true);
+        intent.putExtra("aurea_identity_overlay", true);
+        startActivity(intent);
     }
 
     private void closeAurea() {
