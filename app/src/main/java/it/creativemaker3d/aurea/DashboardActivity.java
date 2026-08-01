@@ -2,13 +2,12 @@ package it.creativemaker3d.aurea;
 
 import android.content.ComponentName;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.FrameLayout;
+import android.view.ViewGroup;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
+import android.widget.Toast;
 
 /**
  * Dashboard compatibile con i risultati biometrici ricevuti mentre la Home è
@@ -20,25 +19,24 @@ import android.widget.FrameLayout;
  * quindi una nuova dashboard con lo stesso Intent, permettendo al flusso di
  * proseguire correttamente verso la verifica vocale o Gestione persone.
  *
- * La dashboard aggiunge inoltre un accesso discreto agli strumenti comuni. Il
- * pulsante è disponibile a qualunque persona registrata e riconosciuta, mentre
- * persona+ continua a usare il flusso amministratore riservato a Giuseppe.
+ * L'accesso agli strumenti comuni viene intercettato dal pulsante Lovelace
+ * collocato nella stessa barra di microfono, persona+ e chiusura. Non viene più
+ * mostrato alcun pulsante flottante sopra la dashboard.
  */
 public final class DashboardActivity extends MainActivity {
-    private static final String TOOLS_BUTTON_TAG = "aurea_registered_tools";
-
+    private final ToolsBridge toolsBridge = new ToolsBridge();
     private boolean forwardingIdentityResult;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        scheduleToolsButton();
+        scheduleToolsIntegration();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        scheduleToolsButton();
+        scheduleToolsIntegration();
     }
 
     @Override
@@ -60,62 +58,91 @@ public final class DashboardActivity extends MainActivity {
         overridePendingTransition(0, 0);
     }
 
-    private void scheduleToolsButton() {
+    private void scheduleToolsIntegration() {
         View decor = getWindow().getDecorView();
-        decor.postDelayed(this::installToolsButton, 900L);
-        decor.postDelayed(this::installToolsButton, 2200L);
+        decor.postDelayed(this::installToolsIntegration, 120L);
+        decor.postDelayed(this::installToolsIntegration, 700L);
+        decor.postDelayed(this::installToolsIntegration, 1700L);
+        decor.postDelayed(this::installToolsIntegration, 3200L);
     }
 
-    private void installToolsButton() {
+    private void installToolsIntegration() {
         if (isFinishing() || isDestroyed()) {
             return;
         }
 
-        View decor = getWindow().getDecorView();
-        View existing = decor.findViewWithTag(TOOLS_BUTTON_TAG);
-        boolean allowed = RegisteredUserAccess.isAllowed(this);
-
-        if (!allowed) {
-            if (existing != null) {
-                existing.setVisibility(View.GONE);
-            }
+        WebView webView = findWebView(getWindow().getDecorView());
+        if (webView == null) {
             return;
         }
 
-        if (existing != null) {
-            existing.setVisibility(View.VISIBLE);
-            return;
-        }
-
-        Button button = new Button(this);
-        button.setTag(TOOLS_BUTTON_TAG);
-        button.setText("⚙");
-        button.setTextSize(22f);
-        button.setTextColor(Color.WHITE);
-        button.setContentDescription("Strumenti AUREA");
-        button.setAllCaps(false);
-        button.setPadding(0, 0, 0, 0);
-        button.setAlpha(0.90f);
-        button.setElevation(dp(5));
-        button.setBackgroundTintList(
-            ColorStateList.valueOf(Color.rgb(18, 43, 60))
+        webView.addJavascriptInterface(toolsBridge, "AureaToolsNative");
+        webView.evaluateJavascript(
+            "(function(){"
+                + "if(window.__aureaToolsBarInstalled)return;"
+                + "window.__aureaToolsBarInstalled=true;"
+                + "document.addEventListener('click',function(e){"
+                + "var p=e.composedPath?e.composedPath():[];"
+                + "var hit=p.some(function(n){"
+                + "if(!n)return false;"
+                + "var t=((n.innerText||n.textContent)||'').trim()"
+                + ".replace(/\\s+/g,' ');"
+                + "var a='';"
+                + "if(n.getAttribute){a=(n.getAttribute('aria-label')||'')+' '"
+                + "+(n.getAttribute('title')||'')+' '"
+                + "+(n.getAttribute('href')||'');}"
+                + "var v=(t+' '+a).toLowerCase();"
+                + "return v.indexOf('strumenti aurea')>=0"
+                + "||v.indexOf('aurea://tools')>=0;"
+                + "});"
+                + "if(hit){"
+                + "e.preventDefault();e.stopImmediatePropagation();"
+                + "if(window.AureaToolsNative){"
+                + "window.AureaToolsNative.openTools();"
+                + "}"
+                + "}"
+                + "},true);"
+                + "})();",
+            null
         );
-        button.setOnClickListener(view -> startActivity(
-            new Intent(this, UserToolsActivity.class)
-        ));
-
-        int size = dp(52);
-        int margin = dp(12);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            size,
-            size,
-            Gravity.END | Gravity.TOP
-        );
-        params.setMargins(margin, margin, margin, margin);
-        addContentView(button, params);
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private WebView findWebView(View view) {
+        if (view instanceof WebView) {
+            return (WebView) view;
+        }
+        if (!(view instanceof ViewGroup)) {
+            return null;
+        }
+
+        ViewGroup group = (ViewGroup) view;
+        for (int index = 0; index < group.getChildCount(); index++) {
+            WebView found = findWebView(group.getChildAt(index));
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private final class ToolsBridge {
+        @JavascriptInterface
+        public void openTools() {
+            runOnUiThread(() -> {
+                if (!RegisteredUserAccess.isAllowed(DashboardActivity.this)) {
+                    Toast.makeText(
+                        DashboardActivity.this,
+                        "Strumenti disponibili dopo il riconoscimento di una persona registrata",
+                        Toast.LENGTH_LONG
+                    ).show();
+                    return;
+                }
+
+                startActivity(new Intent(
+                    DashboardActivity.this,
+                    UserToolsActivity.class
+                ));
+            });
+        }
     }
 }
