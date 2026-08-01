@@ -28,8 +28,8 @@ import java.util.List;
 /**
  * Gestione locale dei profili AUREA.
  *
- * Mostra soltanto nomi e stato delle firme biometriche. Fotografie e audio
- * non vengono conservati dall'app.
+ * L'accesso è consentito soltanto dopo la verifica del volto e della voce
+ * dell'amministratore Giuseppe. Fotografie e audio non vengono conservati.
  */
 public final class PeopleManagerActivity extends Activity {
     private static final String FACE_PREFS = "aurea_face_profiles";
@@ -38,14 +38,25 @@ public final class PeopleManagerActivity extends Activity {
     private LinearLayout profilesContainer;
     private VoiceProfileStore voiceStore;
     private IdentitySessionStore identityStore;
+    private AdminAccessStore adminStore;
+    private boolean interfaceReady;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        adminStore = new AdminAccessStore(this);
+        if (!adminStore.hasValidGrant()) {
+            startAdminVerification();
+            return;
+        }
+
+        adminStore.touch();
         voiceStore = new VoiceProfileStore(this);
         identityStore = new IdentitySessionStore(this);
         buildInterface();
+        interfaceReady = true;
         hideSystemUi();
     }
 
@@ -60,13 +71,22 @@ public final class PeopleManagerActivity extends Activity {
         root.addView(title, fullWidth());
 
         TextView subtitle = text(
-            "Volti e voci restano salvati soltanto su questo tablet.",
+            "Accesso amministratore verificato: Giuseppe",
             15,
-            Color.rgb(176, 201, 220)
+            Color.rgb(124, 220, 255)
         );
         subtitle.setGravity(Gravity.CENTER_HORIZONTAL);
-        subtitle.setPadding(0, dp(5), 0, dp(14));
+        subtitle.setPadding(0, dp(5), 0, dp(3));
         root.addView(subtitle, fullWidth());
+
+        TextView privacy = text(
+            "Volti e voci restano salvati soltanto su questo tablet.",
+            14,
+            Color.rgb(176, 201, 220)
+        );
+        privacy.setGravity(Gravity.CENTER_HORIZONTAL);
+        privacy.setPadding(0, 0, 0, dp(14));
+        root.addView(privacy, fullWidth());
 
         Button addPerson = button("Aggiungi una nuova persona");
         addPerson.setOnClickListener(view -> startNewPersonEnrollment());
@@ -83,8 +103,8 @@ public final class PeopleManagerActivity extends Activity {
             1f
         ));
 
-        Button close = button("Torna a Casa Tablet");
-        close.setOnClickListener(view -> finish());
+        Button close = button("Blocca e torna a Casa Tablet");
+        close.setOnClickListener(view -> closeManager());
         root.addView(close, fullWidthWithTop(dp(12)));
 
         setContentView(root);
@@ -95,12 +115,31 @@ public final class PeopleManagerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemUi();
+
+        if (!interfaceReady) {
+            return;
+        }
+        if (!adminStore.hasValidGrant()) {
+            Toast.makeText(
+                this,
+                "Sessione amministratore scaduta",
+                Toast.LENGTH_LONG
+            ).show();
+            startAdminVerification();
+            return;
+        }
+
+        adminStore.touch();
         if (profilesContainer != null) {
             refreshProfiles();
         }
     }
 
     private void refreshProfiles() {
+        if (!ensureAdminAccess() || profilesContainer == null) {
+            return;
+        }
+
         profilesContainer.removeAllViews();
         List<String> names = loadFaceProfileNames();
 
@@ -136,7 +175,12 @@ public final class PeopleManagerActivity extends Activity {
         background.setStroke(dp(1), Color.rgb(45, 78, 101));
         card.setBackground(background);
 
-        TextView person = text(name, 22, Color.WHITE);
+        boolean administrator = AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(name);
+        TextView person = text(
+            administrator ? name + " · Amministratore" : name,
+            22,
+            Color.WHITE
+        );
         card.addView(person, fullWidth());
 
         boolean hasVoice = voiceStore.hasProfile(name);
@@ -163,8 +207,11 @@ public final class PeopleManagerActivity extends Activity {
         voice.setOnClickListener(view -> startVoiceEnrollment(name));
         actions.addView(voice, weightedButtonWithStart(dp(8)));
 
-        Button delete = button("Elimina");
-        delete.setOnClickListener(view -> confirmDelete(name));
+        Button delete = button(administrator ? "Protetto" : "Elimina");
+        delete.setEnabled(!administrator);
+        if (!administrator) {
+            delete.setOnClickListener(view -> confirmDelete(name));
+        }
         actions.addView(delete, weightedButtonWithStart(dp(8)));
 
         card.addView(actions, fullWidth());
@@ -172,6 +219,9 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private void startNewPersonEnrollment() {
+        if (!ensureAdminAccess()) {
+            return;
+        }
         Intent intent = new Intent(this, FaceGateActivity.class);
         intent.putExtra("aurea_force_enrollment", true);
         intent.putExtra("aurea_return_to_people_manager", true);
@@ -180,6 +230,9 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private void startFaceEnrollment(String name) {
+        if (!ensureAdminAccess()) {
+            return;
+        }
         Intent intent = new Intent(this, FaceGateActivity.class);
         intent.putExtra("aurea_force_enrollment", true);
         intent.putExtra("aurea_enrollment_name", name);
@@ -191,6 +244,9 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private void startVoiceEnrollment(String name) {
+        if (!ensureAdminAccess()) {
+            return;
+        }
         Intent intent = new Intent(this, VoiceGateActivity.class);
         intent.putExtra("aurea_recognized_person", name);
         intent.putExtra("aurea_force_voice_enrollment", true);
@@ -200,6 +256,10 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private void confirmDelete(String name) {
+        if (!ensureAdminAccess()
+                || AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(name)) {
+            return;
+        }
         new AlertDialog.Builder(this)
             .setTitle("Eliminare " + name + "?")
             .setMessage(
@@ -212,6 +272,10 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private void deletePerson(String name) {
+        if (!ensureAdminAccess()
+                || AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(name)) {
+            return;
+        }
         removeFaceProfile(name);
         voiceStore.deleteProfile(name);
         if (name.equalsIgnoreCase(identityStore.trustedPerson())) {
@@ -223,6 +287,43 @@ public final class PeopleManagerActivity extends Activity {
             Toast.LENGTH_LONG
         ).show();
         refreshProfiles();
+    }
+
+    private boolean ensureAdminAccess() {
+        if (adminStore != null && adminStore.hasValidGrant()) {
+            adminStore.touch();
+            return true;
+        }
+        Toast.makeText(
+            this,
+            "Accesso riservato a Giuseppe",
+            Toast.LENGTH_LONG
+        ).show();
+        startAdminVerification();
+        return false;
+    }
+
+    private void startAdminVerification() {
+        if (adminStore == null) {
+            adminStore = new AdminAccessStore(this);
+        }
+        adminStore.requestAccess();
+        Intent face = new Intent(this, FaceGateActivity.class);
+        face.putExtra("aurea_identity_overlay", true);
+        startActivity(face);
+        finish();
+    }
+
+    private void closeManager() {
+        if (adminStore != null) {
+            adminStore.revoke();
+        }
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() {
+        closeManager();
     }
 
     private List<String> loadFaceProfileNames() {
@@ -301,7 +402,11 @@ public final class PeopleManagerActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams weightedButton() {
-        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        return new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        );
     }
 
     private LinearLayout.LayoutParams weightedButtonWithStart(int start) {
