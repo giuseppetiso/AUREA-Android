@@ -104,7 +104,9 @@ public final class FaceGateActivity extends ComponentActivity {
         buildInterface();
         hideSystemUi();
 
-        if (profiles.isEmpty()) {
+        boolean forceEnrollment = getIntent() != null
+            && getIntent().getBooleanExtra("aurea_force_enrollment", false);
+        if (forceEnrollment || profiles.isEmpty()) {
             enterEnrollmentMode();
         } else {
             enterRecognitionMode();
