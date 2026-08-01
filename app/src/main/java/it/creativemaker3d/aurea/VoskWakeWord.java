@@ -32,7 +32,16 @@ final class VoskWakeWord implements RecognitionListener {
     private static final String MODEL_ROOT = "vosk-model-small-it-0.22/";
     private static final String MODEL_DIRECTORY = "vosk-model-small-it-0.22";
     private static final float SAMPLE_RATE = 16000.0f;
-    private static final String GRAMMAR = "[\"aurea\", \"[unk]\"]";
+
+    /*
+     * Le parole foneticamente vicine impediscono al decoder ristretto di
+     * trasformare automaticamente qualunque saluto in "aurea". L'attivazione
+     * viene comunque accettata soltanto quando il risultato definitivo è
+     * esattamente "aurea".
+     */
+    private static final String GRAMMAR =
+        "[\"aurea\", \"ciao\", \"aura\", \"ora\", \"allora\", "
+            + "\"ehi\", \"buongiorno\", \"buonasera\", \"[unk]\"]";
 
     interface Listener {
         void onPreparing();
@@ -234,17 +243,18 @@ final class VoskWakeWord implements RecognitionListener {
 
     @Override
     public void onPartialResult(String hypothesis) {
-        inspectHypothesis(hypothesis);
+        // I risultati parziali possono cambiare mentre la parola viene pronunciata.
+        // Non devono mai attivare AUREA.
     }
 
     @Override
     public void onResult(String hypothesis) {
-        inspectHypothesis(hypothesis);
+        inspectFinalHypothesis(hypothesis);
     }
 
     @Override
     public void onFinalResult(String hypothesis) {
-        inspectHypothesis(hypothesis);
+        inspectFinalHypothesis(hypothesis);
     }
 
     @Override
@@ -265,7 +275,7 @@ final class VoskWakeWord implements RecognitionListener {
         // L'ascolto wake-word non usa timeout.
     }
 
-    private void inspectHypothesis(String hypothesis) {
+    private void inspectFinalHypothesis(String hypothesis) {
         if (hypothesis == null || hypothesis.trim().isEmpty()) {
             return;
         }
@@ -273,10 +283,7 @@ final class VoskWakeWord implements RecognitionListener {
         String text;
         try {
             JSONObject result = new JSONObject(hypothesis);
-            text = result.optString("partial");
-            if (text.isEmpty()) {
-                text = result.optString("text");
-            }
+            text = result.optString("text");
         } catch (Exception ignored) {
             text = hypothesis;
         }
@@ -286,7 +293,7 @@ final class VoskWakeWord implements RecognitionListener {
             .replaceAll("\\s+", " ")
             .trim();
 
-        if (!containsWakeWord(normalized)) {
+        if (!"aurea".equals(normalized)) {
             return;
         }
 
@@ -304,18 +311,6 @@ final class VoskWakeWord implements RecognitionListener {
             stop();
             listener.onDetected();
         });
-    }
-
-    private boolean containsWakeWord(String text) {
-        if (text.isEmpty()) {
-            return false;
-        }
-        for (String word : text.split(" ")) {
-            if ("aurea".equals(word)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private File ensureModelDirectory() throws IOException {
@@ -363,7 +358,7 @@ final class VoskWakeWord implements RecognitionListener {
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(30000);
         connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent", "AUREA-Android/0.2.12");
+        connection.setRequestProperty("User-Agent", "AUREA-Android/0.2.22");
 
         try {
             int code = connection.getResponseCode();
