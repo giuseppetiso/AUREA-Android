@@ -73,6 +73,31 @@ public final class UserToolsActivity extends Activity {
         identity.setPadding(0, dp(5), 0, dp(16));
         root.addView(identity, fullWidth());
 
+        AureaBrainStore brainStore = new AureaBrainStore(this);
+        LinearLayout brainCard = card();
+        TextView brainTitle = text("AUREA Brain 1.0", 23, Color.WHITE);
+        brainCard.addView(brainTitle, fullWidth());
+
+        String selectedAgent = brainStore.agentId();
+        TextView brainDescription = text(
+            "Conversazioni continue e memoria separata per persona. Agente: "
+                + (selectedAgent.isEmpty()
+                    ? "predefinito Home Assistant"
+                    : selectedAgent)
+                + ".",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        brainDescription.setPadding(0, dp(6), 0, dp(12));
+        brainCard.addView(brainDescription, fullWidth());
+
+        Button brain = button("Apri configurazione AUREA Brain");
+        brain.setOnClickListener(view -> startActivity(
+            new Intent(this, AureaBrainActivity.class)
+        ));
+        brainCard.addView(brain, fullWidthWithTop(dp(6)));
+        root.addView(brainCard, fullWidthWithBottom(dp(14)));
+
         LinearLayout actionsCard = card();
         TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
         actionsCard.addView(actionsTitle, fullWidth());
