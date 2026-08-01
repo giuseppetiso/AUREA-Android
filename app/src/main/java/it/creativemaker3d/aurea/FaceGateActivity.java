@@ -50,7 +50,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -91,6 +90,10 @@ public final class FaceGateActivity extends ComponentActivity {
     private boolean recognitionActive;
     private boolean openingMain;
     private boolean forcedEnrollment;
+    private boolean faceOnly;
+    private boolean returnToPeopleManager;
+    private boolean lockEnrollmentName;
+    private String presetEnrollmentName = "";
     private long lastSampleAt;
     private String candidateName;
     private int candidateMatches;
@@ -105,8 +108,20 @@ public final class FaceGateActivity extends ComponentActivity {
         buildInterface();
         hideSystemUi();
 
-        forcedEnrollment = getIntent() != null
-            && getIntent().getBooleanExtra("aurea_force_enrollment", false);
+        Intent source = getIntent();
+        forcedEnrollment = source != null
+            && source.getBooleanExtra("aurea_force_enrollment", false);
+        faceOnly = source != null
+            && source.getBooleanExtra("aurea_face_only", false);
+        returnToPeopleManager = source != null
+            && source.getBooleanExtra("aurea_return_to_people_manager", false);
+        lockEnrollmentName = source != null
+            && source.getBooleanExtra("aurea_lock_enrollment_name", false);
+        if (source != null) {
+            String preset = source.getStringExtra("aurea_enrollment_name");
+            presetEnrollmentName = preset == null ? "" : preset.trim();
+        }
+
         if (forcedEnrollment || profiles.isEmpty()) {
             enterEnrollmentMode();
         } else {
@@ -244,16 +259,26 @@ public final class FaceGateActivity extends ComponentActivity {
         candidateName = null;
         candidateMatches = 0;
 
-        titleView.setText("Registra il volto");
+        titleView.setText(faceOnly ? "Registra di nuovo il volto" : "Registra il volto");
         statusView.setText(
-            "Inserisci il nome, poi guarda la fotocamera e muovi lentamente il viso."
+            lockEnrollmentName
+                ? "Guarda la fotocamera e muovi lentamente il viso."
+                : "Inserisci il nome, poi guarda la fotocamera e muovi lentamente il viso."
         );
         nameInput.setVisibility(View.VISIBLE);
-        nameInput.setEnabled(true);
+        if (!presetEnrollmentName.isEmpty()) {
+            nameInput.setText(presetEnrollmentName);
+        }
+        nameInput.setEnabled(!lockEnrollmentName);
         primaryButton.setVisibility(View.VISIBLE);
         primaryButton.setEnabled(true);
         addPersonButton.setVisibility(View.GONE);
         continueButton.setVisibility(View.VISIBLE);
+        continueButton.setText(
+            returnToPeopleManager
+                ? "Annulla e torna ai profili"
+                : "Continua senza riconoscimento"
+        );
     }
 
     private void beginEnrollment() {
@@ -386,7 +411,7 @@ public final class FaceGateActivity extends ComponentActivity {
             .addOnSuccessListener(cameraExecutor, faces -> {
                 Face face = largestFace(faces);
                 if (face == null) {
-                    main.post(() -> statusForNoFace());
+                    main.post(this::statusForNoFace);
                     return;
                 }
                 if (!isUsableFace(face, frameBitmap)) {
@@ -522,7 +547,7 @@ public final class FaceGateActivity extends ComponentActivity {
     private void resetEnrollmentAfterError(String message) {
         enrollmentSamples.clear();
         enrollmentActive = false;
-        nameInput.setEnabled(true);
+        nameInput.setEnabled(!lockEnrollmentName);
         primaryButton.setEnabled(true);
         statusView.setText(message);
     }
@@ -618,11 +643,22 @@ public final class FaceGateActivity extends ComponentActivity {
         if (forcedEnrollment
                 && recognizedName != null
                 && !recognizedName.trim().isEmpty()) {
+            if (faceOnly) {
+                openPeopleManager();
+                return;
+            }
+
             Intent voice = new Intent(this, VoiceGateActivity.class);
             voice.putExtra("aurea_recognized_person", recognizedName.trim());
+            voice.putExtra("aurea_return_to_people_manager", returnToPeopleManager);
             voice.putExtra("aurea_identity_overlay", true);
             startActivity(voice);
             finish();
+            return;
+        }
+
+        if (returnToPeopleManager) {
+            openPeopleManager();
             return;
         }
 
@@ -632,6 +668,13 @@ public final class FaceGateActivity extends ComponentActivity {
             intent.putExtra("aurea_recognized_person", recognizedName.trim());
         }
         startActivity(intent);
+        finish();
+    }
+
+    private void openPeopleManager() {
+        Intent manager = new Intent(this, PeopleManagerActivity.class);
+        manager.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(manager);
         finish();
     }
 
