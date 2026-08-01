@@ -1,6 +1,7 @@
 package it.creativemaker3d.aurea;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -24,6 +25,7 @@ import android.widget.Toast;
  */
 public final class UserToolsActivity extends Activity {
     private String currentPerson;
+    private UpdateManager updateManager;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -36,6 +38,7 @@ public final class UserToolsActivity extends Activity {
             return;
         }
 
+        updateManager = new UpdateManager(this);
         buildInterface();
         hideSystemUi();
     }
@@ -54,10 +57,10 @@ public final class UserToolsActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(32), dp(24), dp(32), dp(24));
+        root.setPadding(dp(32), dp(20), dp(32), dp(20));
         root.setBackgroundColor(Color.rgb(2, 7, 13));
 
-        TextView title = text("Strumenti AUREA", 30, Color.WHITE);
+        TextView title = text("Strumenti AUREA", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title, fullWidth());
 
@@ -67,8 +70,38 @@ public final class UserToolsActivity extends Activity {
             Color.rgb(124, 220, 255)
         );
         identity.setGravity(Gravity.CENTER);
-        identity.setPadding(0, dp(6), 0, dp(20));
+        identity.setPadding(0, dp(5), 0, dp(16));
         root.addView(identity, fullWidth());
+
+        LinearLayout actionsCard = card();
+        TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
+        actionsCard.addView(actionsTitle, fullWidth());
+
+        TextView actionsDescription = text(
+            "Queste funzioni sono disponibili a tutte le persone registrate.",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        actionsDescription.setPadding(0, dp(6), 0, dp(12));
+        actionsCard.addView(actionsDescription, fullWidth());
+
+        Button update = button("Controlla aggiornamenti AUREA");
+        update.setOnClickListener(view -> {
+            if (updateManager != null) {
+                updateManager.check(true);
+            }
+        });
+        actionsCard.addView(update, fullWidthWithTop(dp(6)));
+
+        Button reload = button("Ricarica Casa Tablet");
+        reload.setOnClickListener(view -> reloadDashboard());
+        actionsCard.addView(reload, fullWidthWithTop(dp(6)));
+
+        Button lock = button("Blocca il profilo corrente");
+        lock.setOnClickListener(view -> confirmLockProfile());
+        actionsCard.addView(lock, fullWidthWithTop(dp(6)));
+
+        root.addView(actionsCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout backupCard = card();
         TextView backupTitle = text("Backup e ripristino", 23, Color.WHITE);
@@ -80,24 +113,24 @@ public final class UserToolsActivity extends Activity {
             15,
             Color.rgb(190, 210, 225)
         );
-        backupDescription.setPadding(0, dp(6), 0, dp(14));
+        backupDescription.setPadding(0, dp(6), 0, dp(12));
         backupCard.addView(backupDescription, fullWidth());
 
         Button backup = button("Apri backup e ripristino");
         backup.setOnClickListener(view -> startActivity(
             new Intent(this, BackupRestoreActivity.class)
         ));
-        backupCard.addView(backup, fullWidth());
-        root.addView(backupCard, fullWidthWithBottom(dp(16)));
+        backupCard.addView(backup, fullWidthWithTop(dp(6)));
+        root.addView(backupCard, fullWidthWithBottom(dp(14)));
 
         TextView policy = text(
-            "Questi strumenti sono disponibili a tutte le persone registrate. "
-                + "Aggiunta, modifica ed eliminazione dei profili restano riservate a Giuseppe.",
+            "Aggiunta, nuova registrazione ed eliminazione delle persone restano "
+                + "riservate esclusivamente a Giuseppe tramite persona+.",
             14,
             Color.rgb(150, 172, 190)
         );
         policy.setGravity(Gravity.CENTER);
-        policy.setPadding(dp(12), dp(6), dp(12), dp(18));
+        policy.setPadding(dp(12), dp(4), dp(12), dp(14));
         root.addView(policy, fullWidth());
 
         Button close = button("Torna a Casa Tablet");
@@ -105,6 +138,39 @@ public final class UserToolsActivity extends Activity {
         root.addView(close, fullWidth());
 
         setContentView(root);
+    }
+
+    private void confirmLockProfile() {
+        new AlertDialog.Builder(this)
+            .setTitle("Bloccare il profilo?")
+            .setMessage(
+                "AUREA dimenticherà soltanto la sessione corrente. "
+                    + "Volto, voce e preferenze resteranno registrati."
+            )
+            .setNegativeButton("Annulla", null)
+            .setPositiveButton("Blocca", (dialog, which) -> {
+                new IdentitySessionStore(this).clearTrust();
+                new AdminAccessStore(this).revoke();
+                Toast.makeText(
+                    this,
+                    "Profilo bloccato. AUREA richiederà nuovamente il riconoscimento.",
+                    Toast.LENGTH_LONG
+                ).show();
+                reloadDashboard();
+            })
+            .show();
+    }
+
+    private void reloadDashboard() {
+        Intent launcher = new Intent(this, HomeLauncherActivity.class);
+        launcher.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION
+        );
+        startActivity(launcher);
+        finishAffinity();
+        overridePendingTransition(0, 0);
     }
 
     private void denyAccess() {
@@ -119,7 +185,7 @@ public final class UserToolsActivity extends Activity {
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(22), dp(18), dp(22), dp(18));
+        card.setPadding(dp(22), dp(16), dp(22), dp(16));
 
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.rgb(12, 25, 37));
@@ -155,6 +221,12 @@ public final class UserToolsActivity extends Activity {
     private LinearLayout.LayoutParams fullWidthWithBottom(int bottom) {
         LinearLayout.LayoutParams params = fullWidth();
         params.bottomMargin = bottom;
+        return params;
+    }
+
+    private LinearLayout.LayoutParams fullWidthWithTop(int top) {
+        LinearLayout.LayoutParams params = fullWidth();
+        params.topMargin = top;
         return params;
     }
 
