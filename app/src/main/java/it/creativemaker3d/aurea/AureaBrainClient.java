@@ -13,15 +13,37 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Motore conversazionale di AUREA Brain.
  *
  * Usa l'API Conversation di Home Assistant, mantiene una conversazione
- * separata per persona e applica una conferma deterministica alle azioni
- * sensibili prima di inoltrarle all'agente.
+ * separata per persona e applica conferme deterministiche alle azioni
+ * sensibili e all'apprendimento di preferenze personali.
  */
 final class AureaBrainClient {
+    private static final String LEARNING_SAVE = "save";
+    private static final String LEARNING_DELETE = "delete";
+    private static final String LEARNING_CLEAR = "clear";
+
+    private static final Pattern EXPLICIT_MEMORY_PATTERN = Pattern.compile(
+        "^(?:aurea[\\s,]+)?(?:ricorda|memorizza|impara|tieni a mente)"
+            + "(?:\\s+che)?\\s+(.+)$",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
+    private static final Pattern CORRECTION_MEMORY_PATTERN = Pattern.compile(
+        "^(?:no[\\s,]+)?(?:in realtà[\\s,]+)?"
+            + "(?:preferisco|mi piace|di solito|normalmente)\\s+.+$",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
+    private static final Pattern DELETE_MEMORY_PATTERN = Pattern.compile(
+        "^(?:aurea[\\s,]+)?(?:dimentica|cancella|rimuovi)"
+            + "(?:\\s+(?:il ricordo|la preferenza|che))?\\s+(.+)$",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
+
     static final class Result {
         final String answer;
         final boolean continueConversation;
@@ -35,14 +57,20 @@ final class AureaBrainClient {
     }
 
     private final AureaBrainStore store;
+    private final AureaLearningStore learningStore;
 
     private String haUrl;
     private String haToken;
     private String pendingSensitiveCommand = "";
     private String pendingSensitivePerson = "";
+    private String pendingLearningAction = "";
+    private String pendingLearningText = "";
+    private String pendingLearningId = "";
+    private String pendingLearningPerson = "";
 
     AureaBrainClient(Context context, String haUrl, String haToken) {
         store = new AureaBrainStore(context);
+        learningStore = new AureaLearningStore(context);
         updateConnection(haUrl, haToken);
     }
 
@@ -57,6 +85,11 @@ final class AureaBrainClient {
 
         if (command.isEmpty()) {
             return new Result("Non ho ricevuto alcuna richiesta.", false);
+        }
+
+        Result pendingLearningResult = handlePendingLearning(command, person);
+        if (pendingLearningResult != null) {
+            return pendingLearningResult;
         }
 
         if (!pendingSensitiveCommand.isEmpty()) {
@@ -86,6 +119,71 @@ final class AureaBrainClient {
             }
         }
 
+        if (asksForMemories(command)) {
+            return new Result(learningStore.speechSummary(person), true);
+        }
+
+        if (asksToClearAllMemories(command)) {
+            int count = learningStore.count(person);
+            if (count == 0) {
+                return new Result(
+                    "Non ho preferenze apprese da cancellare per il tuo profilo.",
+                    true
+                );
+            }
+            beginLearningConfirmation(
+                LEARNING_CLEAR,
+                person,
+                "tutte le preferenze apprese",
+                ""
+            );
+            return new Result(
+                "Confermi che devo cancellare tutte le " + count
+                    + " preferenze apprese del tuo profilo? Rispondi sì o no.",
+                true
+            );
+        }
+
+        String deleteTarget = extractDeleteTarget(command);
+        if (!deleteTarget.isEmpty()) {
+            AureaLearningStore.Memory memory = learningStore.findBestMatch(
+                person,
+                deleteTarget
+            );
+            if (memory == null) {
+                return new Result(
+                    "Non trovo una preferenza corrispondente a " + deleteTarget + ".",
+                    true
+                );
+            }
+            beginLearningConfirmation(
+                LEARNING_DELETE,
+                person,
+                memory.text,
+                memory.id
+            );
+            return new Result(
+                "Confermi che devo dimenticare: " + memory.text
+                    + "? Rispondi sì o no.",
+                true
+            );
+        }
+
+        String memoryCandidate = extractMemoryCandidate(command);
+        if (!memoryCandidate.isEmpty()) {
+            beginLearningConfirmation(
+                LEARNING_SAVE,
+                person,
+                memoryCandidate,
+                ""
+            );
+            return new Result(
+                "Vuoi che memorizzi per il tuo profilo: " + memoryCandidate
+                    + "? Rispondi sì o no.",
+                true
+            );
+        }
+
         if (isSensitive(command)) {
             pendingSensitiveCommand = command;
             pendingSensitivePerson = person;
@@ -105,6 +203,201 @@ final class AureaBrainClient {
         }
 
         return sendToHomeAssistant(command, person, false);
+    }
+
+    private Result handlePendingLearning(String command, String person) {
+        if (pendingLearningAction.isEmpty()) {
+            return null;
+        }
+        if (!pendingLearningPerson.equalsIgnoreCase(person)) {
+            clearPendingLearning();
+            return null;
+        }
+
+        if (isNegative(command)) {
+            String cancelled = pendingLearningText;
+            clearPendingLearning();
+            store.appendDecision(
+                person,
+                cancelled,
+                "Apprendimento annullato dall'utente.",
+                "learning_cancelled",
+                false,
+                store.agentId()
+            );
+            return new Result("Non ho memorizzato alcuna modifica.", true);
+        }
+
+        if (!isAffirmative(command)) {
+            return new Result(
+                "Per modificare la memoria, rispondi sì per confermare oppure no per annullare.",
+                true
+            );
+        }
+
+        String action = pendingLearningAction;
+        String text = pendingLearningText;
+        String id = pendingLearningId;
+        clearPendingLearning();
+
+        if (LEARNING_SAVE.equals(action)) {
+            boolean saved = learningStore.add(person, text);
+            if (saved) {
+                store.clearConversation(person);
+                store.appendDecision(
+                    person,
+                    text,
+                    "Preferenza personale memorizzata.",
+                    "learning_saved",
+                    false,
+                    store.agentId()
+                );
+                return new Result(
+                    "Ho memorizzato questa preferenza per il tuo profilo.",
+                    true
+                );
+            }
+            return new Result(
+                "Questa preferenza era già presente oppure non è valida.",
+                true
+            );
+        }
+
+        if (LEARNING_DELETE.equals(action)) {
+            boolean deleted = learningStore.delete(person, id);
+            if (deleted) {
+                store.clearConversation(person);
+                store.appendDecision(
+                    person,
+                    text,
+                    "Preferenza personale eliminata.",
+                    "learning_deleted",
+                    false,
+                    store.agentId()
+                );
+                return new Result("Ho dimenticato quella preferenza.", true);
+            }
+            return new Result(
+                "Non sono riuscita a trovare quella preferenza.",
+                true
+            );
+        }
+
+        if (LEARNING_CLEAR.equals(action)) {
+            int count = learningStore.count(person);
+            learningStore.clear(person);
+            store.clearConversation(person);
+            store.appendDecision(
+                person,
+                "Cancella tutte le preferenze apprese",
+                "Eliminate " + count + " preferenze personali.",
+                "learning_cleared",
+                false,
+                store.agentId()
+            );
+            return new Result(
+                count == 1
+                    ? "Ho cancellato la preferenza appresa del tuo profilo."
+                    : "Ho cancellato tutte le preferenze apprese del tuo profilo.",
+                true
+            );
+        }
+
+        return new Result("Operazione di memoria non riconosciuta.", true);
+    }
+
+    private void beginLearningConfirmation(
+            String action,
+            String person,
+            String text,
+            String id) {
+        clearPendingSensitiveAction();
+        pendingLearningAction = clean(action);
+        pendingLearningPerson = normalizedPerson(person);
+        pendingLearningText = clean(text);
+        pendingLearningId = clean(id);
+        store.appendDecision(
+            person,
+            text,
+            "In attesa di conferma per modificare la memoria personale.",
+            "learning_confirmation_required",
+            false,
+            store.agentId()
+        );
+    }
+
+    private boolean asksForMemories(String command) {
+        String value = normalizedText(command);
+        return containsAny(
+            value,
+            "cosa ricordi di me",
+            "che cosa ricordi di me",
+            "quali preferenze ricordi",
+            "mostrami i miei ricordi",
+            "mostrami le mie preferenze",
+            "dimmi cosa sai di me"
+        );
+    }
+
+    private boolean asksToClearAllMemories(String command) {
+        String value = normalizedText(command);
+        return containsAny(
+            value,
+            "dimentica tutto di me",
+            "cancella tutti i miei ricordi",
+            "cancella tutte le mie preferenze",
+            "dimentica tutte le mie preferenze",
+            "azzera le mie preferenze",
+            "azzera i miei ricordi"
+        );
+    }
+
+    private String extractMemoryCandidate(String command) {
+        String value = clean(command);
+        Matcher explicit = EXPLICIT_MEMORY_PATTERN.matcher(value);
+        if (explicit.matches()) {
+            return cleanMemoryText(explicit.group(1));
+        }
+
+        Matcher correction = CORRECTION_MEMORY_PATTERN.matcher(value);
+        if (correction.matches()) {
+            String cleaned = value.replaceFirst(
+                "(?iu)^(?:no[\\s,]+)?(?:in realtà[\\s,]+)?",
+                ""
+            );
+            return cleanMemoryText(cleaned);
+        }
+        return "";
+    }
+
+    private String extractDeleteTarget(String command) {
+        Matcher matcher = DELETE_MEMORY_PATTERN.matcher(clean(command));
+        if (!matcher.matches()) {
+            return "";
+        }
+        String target = cleanMemoryText(matcher.group(1));
+        String normalized = normalizedText(target);
+        if (normalized.equals("tutto")
+                || normalized.equals("tutte")
+                || normalized.contains("tutte le preferenze")
+                || normalized.contains("tutti i ricordi")) {
+            return "";
+        }
+        return target;
+    }
+
+    private String cleanMemoryText(String value) {
+        String result = clean(value)
+            .replaceAll("[\\r\\n\\t]+", " ")
+            .replaceAll("\\s+", " ");
+        while (result.endsWith(".") || result.endsWith(",")
+                || result.endsWith(";")) {
+            result = result.substring(0, result.length() - 1).trim();
+        }
+        if (result.length() > 220) {
+            result = result.substring(0, 220).trim();
+        }
+        return result.length() < 3 ? "" : result;
     }
 
     private Result sendToHomeAssistant(
@@ -340,6 +633,13 @@ final class AureaBrainClient {
     private void clearPendingSensitiveAction() {
         pendingSensitiveCommand = "";
         pendingSensitivePerson = "";
+    }
+
+    private void clearPendingLearning() {
+        pendingLearningAction = "";
+        pendingLearningText = "";
+        pendingLearningId = "";
+        pendingLearningPerson = "";
     }
 
     private String normalizedPerson(String value) {
