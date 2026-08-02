@@ -155,8 +155,8 @@ public final class UserToolsActivity extends Activity {
         backupCard.addView(backupTitle, fullWidth());
 
         TextView backupDescription = text(
-            "Salva profili, firme vocali, preferenze e osservazioni in un file protetto da password. "
-                + "Il token Home Assistant resta escluso.",
+            "Salva profili, firme vocali e preferenze confermate in un file protetto da password. "
+                + "Le osservazioni temporanee Insights e il token Home Assistant restano esclusi.",
             15,
             Color.rgb(190, 210, 225)
         );
