@@ -87,6 +87,13 @@
             android:exported="false" />
 
         <activity
+            android:name=".AureaRoutineStudioActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
+            android:exported="false" />
+
+        <activity
             android:name=".BackupRestoreActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"

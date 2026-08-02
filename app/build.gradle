@@ -25,8 +25,8 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 49
-        versionName "0.5.1"
+        versionCode 50
+        versionName "0.6.0"
     }
 
     buildFeatures {

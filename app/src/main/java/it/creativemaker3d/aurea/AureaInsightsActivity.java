@@ -2,6 +2,7 @@ package it.creativemaker3d.aurea;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -29,7 +30,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashSet;
@@ -42,8 +42,8 @@ import java.util.concurrent.Executors;
  * Pannello di osservazione controllata delle abitudini domestiche.
  *
  * Ogni entità deve essere scelta esplicitamente. Le proposte possono essere
- * salvate come preferenze personali oppure ignorate, ma non vengono mai
- * trasformate automaticamente in automazioni Home Assistant.
+ * salvate come preferenze, ignorate o convertite in bozze Routine Studio.
+ * Nessuna automazione viene installata automaticamente in Home Assistant.
  */
 public final class AureaInsightsActivity extends Activity {
     private static final String HA_PREFS = "aurea";
@@ -53,6 +53,7 @@ public final class AureaInsightsActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     private AureaInsightsStore store;
+    private AureaRoutineDraftStore draftStore;
     private String currentPerson;
     private CheckBox enabled;
     private TextView status;
@@ -70,6 +71,7 @@ public final class AureaInsightsActivity extends Activity {
         }
 
         store = new AureaInsightsStore(this);
+        draftStore = new AureaRoutineDraftStore(this);
         buildInterface();
         refreshAll();
         hideSystemUi();
@@ -97,7 +99,7 @@ public final class AureaInsightsActivity extends Activity {
         root.setPadding(dp(30), dp(18), dp(30), dp(18));
         scroll.addView(root, fullWidth());
 
-        TextView title = text("AUREA Insights 1.0", 29, Color.WHITE);
+        TextView title = text("AUREA Insights 1.1", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title, fullWidth());
 
@@ -150,8 +152,8 @@ public final class AureaInsightsActivity extends Activity {
         LinearLayout suggestionsCard = card();
         suggestionsCard.addView(text("Routine possibili", 22, Color.WHITE));
         TextView suggestionsHelp = text(
-            "Salvare una proposta la trasforma soltanto in una preferenza personale per Gemini. "
-                + "Non viene creata alcuna automazione.",
+            "Puoi salvare una proposta come preferenza personale oppure creare una bozza "
+                + "YAML in Routine Studio. Nessuna automazione viene installata da sola.",
             14,
             Color.rgb(170, 193, 210)
         );
@@ -163,11 +165,15 @@ public final class AureaInsightsActivity extends Activity {
         suggestionsCard.addView(suggestionsContainer, fullWidth());
         root.addView(suggestionsCard, fullWidthWithBottom(dp(14)));
 
+        Button studio = button("Apri AUREA Routine Studio");
+        studio.setOnClickListener(view -> openRoutineStudio(null));
+        root.addView(studio, fullWidthWithBottom(dp(8)));
+
         Button clear = button("Cancella osservazioni e suggerimenti");
         clear.setOnClickListener(view -> confirmClear());
         root.addView(clear, fullWidthWithBottom(dp(8)));
 
-        Button close = button("Torna ad AUREA Brain");
+        Button close = button("Torna agli strumenti AUREA");
         close.setOnClickListener(view -> finish());
         root.addView(close, fullWidth());
 
@@ -194,6 +200,8 @@ public final class AureaInsightsActivity extends Activity {
                 + "\nEntità selezionate: " + store.selectedEntities().size()
                 + "\nCambi di stato osservati: " + store.observationCount()
                 + "\nRoutine proposte: " + store.suggestionCount()
+                + "\nBozze Routine Studio: "
+                + (draftStore == null ? 0 : draftStore.count())
         );
     }
 
@@ -263,9 +271,33 @@ public final class AureaInsightsActivity extends Activity {
             refreshAll();
         });
         actions.addView(ignore, weightedButtonWithStart(dp(7)));
-
         card.addView(actions, fullWidth());
+
+        if (draftStore != null && draftStore.isSupported(suggestion)) {
+            Button draft = button("Crea bozza automazione in Routine Studio");
+            draft.setOnClickListener(view -> openRoutineStudio(suggestion));
+            card.addView(draft, fullWidthWithTop(dp(7)));
+        } else if (draftStore != null) {
+            TextView unsupported = text(
+                draftStore.unsupportedReason(suggestion),
+                13,
+                Color.rgb(172, 190, 204)
+            );
+            unsupported.setPadding(0, dp(7), 0, 0);
+            card.addView(unsupported, fullWidth());
+        }
         return card;
+    }
+
+    private void openRoutineStudio(AureaInsightsStore.Suggestion suggestion) {
+        Intent intent = new Intent(this, AureaRoutineStudioActivity.class);
+        if (suggestion != null) {
+            intent.putExtra(
+                AureaRoutineStudioActivity.EXTRA_SUGGESTION_ID,
+                suggestion.id
+            );
+        }
+        startActivity(intent);
     }
 
     private void confirmAccept(AureaInsightsStore.Suggestion suggestion) {
@@ -457,7 +489,8 @@ public final class AureaInsightsActivity extends Activity {
             .setTitle("Cancellare le osservazioni?")
             .setMessage(
                 "Verranno cancellati cambi di stato, suggerimenti e routine ignorate. "
-                    + "La selezione delle entità e le preferenze già confermate resteranno intatte."
+                    + "Le bozze Routine Studio, la selezione delle entità e le preferenze "
+                    + "già confermate resteranno intatte."
             )
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Cancella", (dialog, which) -> {
