@@ -106,7 +106,7 @@ public final class UserToolsActivity extends Activity {
 
         AureaInsightsStore insightsStore = new AureaInsightsStore(this);
         LinearLayout insightsCard = card();
-        TextView insightsTitle = text("AUREA Insights 1.0", 23, Color.WHITE);
+        TextView insightsTitle = text("AUREA Insights 1.1", 23, Color.WHITE);
         insightsCard.addView(insightsTitle, fullWidth());
 
         TextView insightsDescription = text(
@@ -125,6 +125,28 @@ public final class UserToolsActivity extends Activity {
         ));
         insightsCard.addView(insights, fullWidthWithTop(dp(6)));
         root.addView(insightsCard, fullWidthWithBottom(dp(14)));
+
+        AureaRoutineDraftStore routineStore = new AureaRoutineDraftStore(this);
+        LinearLayout routineCard = card();
+        TextView routineTitle = text("AUREA Routine Studio 1.0", 23, Color.WHITE);
+        routineCard.addView(routineTitle, fullWidth());
+
+        TextView routineDescription = text(
+            "Trasforma le proposte Insights in bozze YAML modificabili. Bozze salvate: "
+                + routineStore.count()
+                + ". Nessuna bozza viene installata automaticamente.",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        routineDescription.setPadding(0, dp(6), 0, dp(12));
+        routineCard.addView(routineDescription, fullWidth());
+
+        Button routine = button("Apri AUREA Routine Studio");
+        routine.setOnClickListener(view -> startActivity(
+            new Intent(this, AureaRoutineStudioActivity.class)
+        ));
+        routineCard.addView(routine, fullWidthWithTop(dp(6)));
+        root.addView(routineCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout actionsCard = card();
         TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
@@ -162,7 +184,7 @@ public final class UserToolsActivity extends Activity {
 
         TextView backupDescription = text(
             "Salva profili, firme vocali e preferenze confermate in un file protetto da password. "
-                + "Le osservazioni temporanee Insights e il token Home Assistant restano esclusi.",
+                + "Osservazioni Insights, bozze Routine Studio e token Home Assistant restano esclusi.",
             15,
             Color.rgb(190, 210, 225)
         );
