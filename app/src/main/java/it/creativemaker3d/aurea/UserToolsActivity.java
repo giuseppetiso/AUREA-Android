@@ -128,11 +128,12 @@ public final class UserToolsActivity extends Activity {
 
         AureaRoutineDraftStore routineStore = new AureaRoutineDraftStore(this);
         LinearLayout routineCard = card();
-        TextView routineTitle = text("AUREA Routine Studio 1.0", 23, Color.WHITE);
+        TextView routineTitle = text("AUREA Routine Studio 1.1 + Guard", 23, Color.WHITE);
         routineCard.addView(routineTitle, fullWidth());
 
         TextView routineDescription = text(
-            "Trasforma le proposte Insights in bozze YAML modificabili. Bozze salvate: "
+            "Crea bozze YAML e le controlla prima della copia: entità, azione, orario, "
+                + "conflitti e dispositivi sensibili. Bozze salvate: "
                 + routineStore.count()
                 + ". Nessuna bozza viene installata automaticamente.",
             15,
