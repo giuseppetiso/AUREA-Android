@@ -25,19 +25,26 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Gestisce bozze di automazione generate dalle proposte AUREA Insights.
  *
- * Questa attività non usa il token Home Assistant e non invia configurazioni.
- * Permette soltanto di modificare, visualizzare e copiare YAML da verificare.
+ * Routine Guard controlla ogni copia YAML tramite lettura in sola lettura di
+ * Home Assistant, validazione locale e ricerca di conflitti tra bozze.
  */
 public final class AureaRoutineStudioActivity extends Activity {
     static final String EXTRA_SUGGESTION_ID = "aurea_routine_suggestion_id";
+
+    private final ExecutorService guardIo = Executors.newSingleThreadExecutor();
+    private final Map<String, AureaRoutineGuard.Report> guardReports = new HashMap<>();
 
     private AureaRoutineDraftStore draftStore;
     private AureaInsightsStore insightsStore;
@@ -118,7 +125,7 @@ public final class AureaRoutineStudioActivity extends Activity {
         root.setPadding(dp(30), dp(18), dp(30), dp(18));
         scroll.addView(root, fullWidth());
 
-        TextView title = text("AUREA Routine Studio 1.0", 29, Color.WHITE);
+        TextView title = text("AUREA Routine Studio 1.1", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title, fullWidth());
 
@@ -132,9 +139,9 @@ public final class AureaRoutineStudioActivity extends Activity {
         root.addView(identity, fullWidth());
 
         TextView explanation = text(
-            "Routine Studio converte le abitudini rilevate in bozze YAML. "
-                + "Puoi cambiare nome, orario e giorni, poi copiare il codice. "
-                + "AUREA non installa e non attiva automazioni da sola.",
+            "Routine Guard verifica entità, azione, orario, YAML e conflitti prima della copia. "
+                + "Le bozze bloccate non possono essere copiate. AUREA non installa e non attiva "
+                + "automazioni da sola.",
             15,
             Color.rgb(190, 210, 225)
         );
@@ -173,7 +180,7 @@ public final class AureaRoutineStudioActivity extends Activity {
             AureaRoutineDraftAccess.listForPerson(draftStore, currentPerson);
         status.setText(
             "Bozze personali salvate: " + drafts.size()
-                + "\nRestano soltanto sul tablet e non modificano Home Assistant."
+                + "\nLa copia YAML richiede sempre un controllo Routine Guard aggiornato."
         );
         draftsContainer.removeAllViews();
 
@@ -218,8 +225,19 @@ public final class AureaRoutineStudioActivity extends Activity {
             13,
             Color.rgb(150, 172, 190)
         );
-        entity.setPadding(0, 0, 0, dp(9));
+        entity.setPadding(0, 0, 0, dp(5));
         card.addView(entity, fullWidth());
+
+        AureaRoutineGuard.Report report = guardReports.get(draft.id);
+        TextView guardState = text(
+            report == null
+                ? "Routine Guard: non ancora controllata"
+                : "Routine Guard: " + report.statusLabel(),
+            14,
+            guardColor(report)
+        );
+        guardState.setPadding(0, 0, 0, dp(9));
+        card.addView(guardState, fullWidth());
 
         LinearLayout firstRow = new LinearLayout(this);
         firstRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -228,24 +246,109 @@ public final class AureaRoutineStudioActivity extends Activity {
         edit.setOnClickListener(view -> editDraft(draft));
         firstRow.addView(edit, weighted());
 
-        Button preview = button("Mostra YAML");
-        preview.setOnClickListener(view -> showYaml(draft));
-        firstRow.addView(preview, weightedWithStart(dp(7)));
+        Button guard = button("Controlla sicurezza");
+        guard.setOnClickListener(view -> runGuard(draft, false));
+        firstRow.addView(guard, weightedWithStart(dp(7)));
         card.addView(firstRow, fullWidth());
 
         LinearLayout secondRow = new LinearLayout(this);
         secondRow.setOrientation(LinearLayout.HORIZONTAL);
 
-        Button copy = button("Copia YAML");
+        Button preview = button("Mostra YAML");
+        preview.setOnClickListener(view -> showYaml(draft));
+        secondRow.addView(preview, weighted());
+
+        Button copy = button("Controlla e copia YAML");
         copy.setOnClickListener(view -> copyYaml(draft));
-        secondRow.addView(copy, weighted());
+        secondRow.addView(copy, weightedWithStart(dp(7)));
+        card.addView(secondRow, fullWidthWithTop(dp(7)));
 
         Button delete = button("Elimina bozza");
         delete.setOnClickListener(view -> confirmDelete(draft));
-        secondRow.addView(delete, weightedWithStart(dp(7)));
-        card.addView(secondRow, fullWidthWithTop(dp(7)));
+        card.addView(delete, fullWidthWithTop(dp(7)));
 
         return card;
+    }
+
+    private int guardColor(AureaRoutineGuard.Report report) {
+        if (report == null) {
+            return Color.rgb(150, 172, 190);
+        }
+        switch (report.overallLevel()) {
+            case BLOCKED:
+                return Color.rgb(255, 120, 120);
+            case WARNING:
+                return Color.rgb(255, 205, 110);
+            default:
+                return Color.rgb(120, 230, 170);
+        }
+    }
+
+    private void runGuard(AureaRoutineDraftStore.Draft draft, boolean copyAfter) {
+        Toast.makeText(
+            this,
+            "Routine Guard sta controllando la bozza...",
+            Toast.LENGTH_SHORT
+        ).show();
+        List<AureaRoutineDraftStore.Draft> profileDrafts =
+            AureaRoutineDraftAccess.listForPerson(draftStore, currentPerson);
+
+        guardIo.execute(() -> {
+            AureaRoutineGuard.Report report = new AureaRoutineGuard(this).inspect(
+                draft,
+                profileDrafts
+            );
+            runOnUiThread(() -> {
+                guardReports.put(draft.id, report);
+                refreshDrafts();
+                if (copyAfter) {
+                    handleCopyAfterGuard(draft, report);
+                } else {
+                    showGuardReport(draft, report);
+                }
+            });
+        });
+    }
+
+    private void showGuardReport(
+            AureaRoutineDraftStore.Draft draft,
+            AureaRoutineGuard.Report report) {
+        new AlertDialog.Builder(this)
+            .setTitle("Routine Guard · " + report.statusLabel())
+            .setMessage(report.formatted())
+            .setPositiveButton("Chiudi", null)
+            .show();
+    }
+
+    private void handleCopyAfterGuard(
+            AureaRoutineDraftStore.Draft draft,
+            AureaRoutineGuard.Report report) {
+        if (report.isBlocked()) {
+            new AlertDialog.Builder(this)
+                .setTitle("Copia bloccata da Routine Guard")
+                .setMessage(report.formatted())
+                .setPositiveButton("Chiudi", null)
+                .show();
+            return;
+        }
+
+        if (report.hasWarnings()) {
+            new AlertDialog.Builder(this)
+                .setTitle("Bozza con avvisi")
+                .setMessage(
+                    report.formatted()
+                        + "\n\nPuoi copiarla soltanto dopo questa conferma. "
+                        + "Controlla nuovamente il YAML in Home Assistant."
+                )
+                .setNegativeButton("Annulla", null)
+                .setPositiveButton("Copia comunque", (dialog, which) ->
+                    copyValidatedYaml(draft)
+                )
+                .show();
+            return;
+        }
+
+        copyValidatedYaml(draft);
     }
 
     private void editDraft(AureaRoutineDraftStore.Draft draft) {
@@ -301,7 +404,7 @@ public final class AureaRoutineStudioActivity extends Activity {
         form.addView(dayRow(4, 7, initialDays, dayChecks), fullWidth());
 
         TextView note = dialogLabel(
-            "La bozza resta inattiva finché non la copierai e controllerai in Home Assistant."
+            "Ogni modifica annulla il precedente esito Routine Guard."
         );
         note.setTextSize(12);
         note.setPadding(0, dp(8), 0, 0);
@@ -342,9 +445,14 @@ public final class AureaRoutineStudioActivity extends Activity {
                 }
 
                 draftStore.save(draft.withEditing(alias, selectedTime[0], selectedDays));
+                guardReports.remove(draft.id);
                 dialog.dismiss();
                 refreshDrafts();
-                Toast.makeText(this, "Bozza aggiornata", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    this,
+                    "Bozza aggiornata. Esegui nuovamente Routine Guard.",
+                    Toast.LENGTH_LONG
+                ).show();
             }));
         dialog.show();
     }
@@ -392,11 +500,15 @@ public final class AureaRoutineStudioActivity extends Activity {
             .setTitle(draft.alias)
             .setView(scroll)
             .setNegativeButton("Chiudi", null)
-            .setPositiveButton("Copia YAML", (dialog, which) -> copyText(yaml))
+            .setPositiveButton("Controlla e copia", (dialog, which) -> copyYaml(draft))
             .show();
     }
 
     private void copyYaml(AureaRoutineDraftStore.Draft draft) {
+        runGuard(draft, true);
+    }
+
+    private void copyValidatedYaml(AureaRoutineDraftStore.Draft draft) {
         String yaml = draftStore.buildYaml(draft);
         if (yaml.isEmpty()) {
             Toast.makeText(this, "YAML non disponibile", Toast.LENGTH_LONG).show();
@@ -416,7 +528,7 @@ public final class AureaRoutineStudioActivity extends Activity {
         clipboard.setPrimaryClip(ClipData.newPlainText("AUREA automation YAML", yaml));
         Toast.makeText(
             this,
-            "YAML copiato. Controllalo prima di attivarlo in Home Assistant.",
+            "YAML controllato e copiato. Verificalo ancora prima di attivarlo in Home Assistant.",
             Toast.LENGTH_LONG
         ).show();
     }
@@ -428,6 +540,7 @@ public final class AureaRoutineStudioActivity extends Activity {
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Elimina", (dialog, which) -> {
                 draftStore.delete(draft.id);
+                guardReports.remove(draft.id);
                 refreshDrafts();
             })
             .show();
@@ -451,6 +564,7 @@ public final class AureaRoutineStudioActivity extends Activity {
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Cancella", (dialog, which) -> {
                 AureaRoutineDraftAccess.clearForPerson(draftStore, currentPerson);
+                guardReports.clear();
                 refreshDrafts();
             })
             .show();
@@ -591,5 +705,11 @@ public final class AureaRoutineStudioActivity extends Activity {
                 );
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        guardIo.shutdownNow();
+        super.onDestroy();
     }
 }
