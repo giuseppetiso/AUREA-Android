@@ -13,6 +13,7 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -54,11 +55,16 @@ public final class UserToolsActivity extends Activity {
     }
 
     private void buildInterface() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.rgb(2, 7, 13));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(32), dp(20), dp(32), dp(20));
         root.setBackgroundColor(Color.rgb(2, 7, 13));
+        scroll.addView(root, fullWidth());
 
         TextView title = text("Strumenti AUREA", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -75,12 +81,12 @@ public final class UserToolsActivity extends Activity {
 
         AureaBrainStore brainStore = new AureaBrainStore(this);
         LinearLayout brainCard = card();
-        TextView brainTitle = text("AUREA Brain 1.0", 23, Color.WHITE);
+        TextView brainTitle = text("AUREA Brain 1.1", 23, Color.WHITE);
         brainCard.addView(brainTitle, fullWidth());
 
         String selectedAgent = brainStore.agentId();
         TextView brainDescription = text(
-            "Conversazioni continue e memoria separata per persona. Agente: "
+            "Conversazioni continue, memoria separata per persona e preferenze apprese. Agente: "
                 + (selectedAgent.isEmpty()
                     ? "predefinito Home Assistant"
                     : selectedAgent)
@@ -97,6 +103,28 @@ public final class UserToolsActivity extends Activity {
         ));
         brainCard.addView(brain, fullWidthWithTop(dp(6)));
         root.addView(brainCard, fullWidthWithBottom(dp(14)));
+
+        AureaInsightsStore insightsStore = new AureaInsightsStore(this);
+        LinearLayout insightsCard = card();
+        TextView insightsTitle = text("AUREA Insights 1.0", 23, Color.WHITE);
+        insightsCard.addView(insightsTitle, fullWidth());
+
+        TextView insightsDescription = text(
+            "Osserva soltanto le entità scelte e riconosce possibili abitudini. "
+                + "Routine proposte: " + insightsStore.suggestionCount()
+                + ". Nessuna automazione viene creata da sola.",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        insightsDescription.setPadding(0, dp(6), 0, dp(12));
+        insightsCard.addView(insightsDescription, fullWidth());
+
+        Button insights = button("Apri osservazione abitudini");
+        insights.setOnClickListener(view -> startActivity(
+            new Intent(this, AureaInsightsActivity.class)
+        ));
+        insightsCard.addView(insights, fullWidthWithTop(dp(6)));
+        root.addView(insightsCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout actionsCard = card();
         TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
@@ -133,8 +161,8 @@ public final class UserToolsActivity extends Activity {
         backupCard.addView(backupTitle, fullWidth());
 
         TextView backupDescription = text(
-            "Salva profili, firme vocali e preferenze in un file protetto da password. "
-                + "Il token Home Assistant resta escluso.",
+            "Salva profili, firme vocali e preferenze confermate in un file protetto da password. "
+                + "Le osservazioni temporanee Insights e il token Home Assistant restano esclusi.",
             15,
             Color.rgb(190, 210, 225)
         );
@@ -162,7 +190,7 @@ public final class UserToolsActivity extends Activity {
         close.setOnClickListener(view -> finish());
         root.addView(close, fullWidth());
 
-        setContentView(root);
+        setContentView(scroll);
     }
 
     private void confirmLockProfile() {

@@ -29,8 +29,8 @@ import java.util.concurrent.Executors;
  * quindi una nuova dashboard con lo stesso Intent, permettendo al flusso di
  * proseguire correttamente verso la verifica vocale o Gestione persone.
  *
- * AUREA Brain intercetta inoltre il testo già riconosciuto e lo invia al
- * conversation agent configurato, mantenendo una memoria separata per persona.
+ * AUREA Brain intercetta il testo già riconosciuto e AUREA Insights osserva in
+ * sola lettura le entità scelte dall'utente mentre la dashboard è visibile.
  */
 public final class DashboardActivity extends MainActivity {
     private static final long TOOLS_RETRY_MS = 1500L;
@@ -38,6 +38,8 @@ public final class DashboardActivity extends MainActivity {
     private static final long FOLLOW_UP_POLL_MS = 120L;
     private static final long FOLLOW_UP_START_DELAY_MS = 220L;
     private static final long FOLLOW_UP_SPEECH_START_WAIT_MS = 2500L;
+    private static final long INSIGHTS_INITIAL_DELAY_MS = 2000L;
+    private static final long INSIGHTS_POLL_MS = 60_000L;
 
     private static final String HA_PREFS = "aurea";
     private static final String KEY_HA_URL = "ha_url";
@@ -46,7 +48,9 @@ public final class DashboardActivity extends MainActivity {
     private final ToolsBridge toolsBridge = new ToolsBridge();
     private final Handler integrationHandler = new Handler(Looper.getMainLooper());
     private final Handler conversationHandler = new Handler(Looper.getMainLooper());
+    private final Handler insightsHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService brainIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService insightsIo = Executors.newSingleThreadExecutor();
 
     private final Runnable integrationTask = new Runnable() {
         @Override
@@ -95,10 +99,23 @@ public final class DashboardActivity extends MainActivity {
         }
     };
 
+    private final Runnable insightsTask = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            pollInsights();
+            insightsHandler.postDelayed(this, INSIGHTS_POLL_MS);
+        }
+    };
+
     private AureaBrainClient brainClient;
+    private AureaInsightsObserver insightsObserver;
     private boolean forwardingIdentityResult;
     private boolean followUpRequested;
     private boolean followUpSawSpeech;
+    private boolean insightsPollRunning;
     private long followUpSpeechStartDeadline;
 
     @Override
@@ -113,11 +130,13 @@ public final class DashboardActivity extends MainActivity {
         super.onResume();
         refreshBrainConnection();
         startToolsIntegration();
+        startInsightsObservation();
     }
 
     @Override
     protected void onPause() {
         cancelFollowUp();
+        stopInsightsObservation();
         integrationHandler.removeCallbacks(integrationTask);
         super.onPause();
     }
@@ -125,9 +144,12 @@ public final class DashboardActivity extends MainActivity {
     @Override
     protected void onDestroy() {
         cancelFollowUp();
+        stopInsightsObservation();
         conversationHandler.removeCallbacksAndMessages(null);
         integrationHandler.removeCallbacksAndMessages(null);
+        insightsHandler.removeCallbacksAndMessages(null);
         brainIo.shutdownNow();
+        insightsIo.shutdownNow();
         super.onDestroy();
     }
 
@@ -227,6 +249,50 @@ public final class DashboardActivity extends MainActivity {
         } else {
             brainClient.updateConnection(haUrl, haToken);
         }
+
+        if (insightsObserver == null) {
+            insightsObserver = new AureaInsightsObserver(this, haUrl, haToken);
+        } else {
+            insightsObserver.updateConnection(haUrl, haToken);
+        }
+    }
+
+    private void startInsightsObservation() {
+        insightsHandler.removeCallbacks(insightsTask);
+        insightsHandler.postDelayed(insightsTask, INSIGHTS_INITIAL_DELAY_MS);
+    }
+
+    private void stopInsightsObservation() {
+        insightsHandler.removeCallbacks(insightsTask);
+    }
+
+    private void pollInsights() {
+        if (insightsPollRunning || insightsObserver == null
+                || isFinishing() || isDestroyed()) {
+            return;
+        }
+        AureaInsightsStore store = new AureaInsightsStore(this);
+        if (!store.isEnabled() || store.selectedEntities().isEmpty()) {
+            return;
+        }
+
+        insightsPollRunning = true;
+        String actor = RegisteredUserAccess.currentPerson(this);
+        insightsIo.execute(() -> {
+            try {
+                AureaInsightsStore.IngestResult result = insightsObserver.poll(actor);
+                if (result.newSuggestion) {
+                    runOnUiThread(() -> Toast.makeText(
+                        DashboardActivity.this,
+                        "AUREA ha rilevato una possibile routine",
+                        Toast.LENGTH_LONG
+                    ).show());
+                }
+            } catch (Exception ignored) {
+            } finally {
+                insightsPollRunning = false;
+            }
+        });
     }
 
     private boolean setMainBoolean(String fieldName, boolean value) {
