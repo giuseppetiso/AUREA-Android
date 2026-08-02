@@ -13,6 +13,7 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -54,11 +55,16 @@ public final class UserToolsActivity extends Activity {
     }
 
     private void buildInterface() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.rgb(2, 7, 13));
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(32), dp(20), dp(32), dp(20));
         root.setBackgroundColor(Color.rgb(2, 7, 13));
+        scroll.addView(root, fullWidth());
 
         TextView title = text("Strumenti AUREA", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
@@ -184,7 +190,7 @@ public final class UserToolsActivity extends Activity {
         close.setOnClickListener(view -> finish());
         root.addView(close, fullWidth());
 
-        setContentView(root);
+        setContentView(scroll);
     }
 
     private void confirmLockProfile() {
