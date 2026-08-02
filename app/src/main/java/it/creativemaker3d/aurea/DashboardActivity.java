@@ -34,13 +34,20 @@ import java.util.concurrent.Executors;
  */
 public final class DashboardActivity extends MainActivity {
     private static final long TOOLS_RETRY_MS = 1500L;
+    private static final long FOLLOW_UP_INITIAL_DELAY_MS = 300L;
+    private static final long FOLLOW_UP_POLL_MS = 120L;
+    private static final long FOLLOW_UP_START_DELAY_MS = 220L;
+    private static final long FOLLOW_UP_SPEECH_START_WAIT_MS = 2500L;
+
     private static final String HA_PREFS = "aurea";
     private static final String KEY_HA_URL = "ha_url";
     private static final String KEY_HA_TOKEN = "ha_token";
 
     private final ToolsBridge toolsBridge = new ToolsBridge();
     private final Handler integrationHandler = new Handler(Looper.getMainLooper());
+    private final Handler conversationHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService brainIo = Executors.newSingleThreadExecutor();
+
     private final Runnable integrationTask = new Runnable() {
         @Override
         public void run() {
@@ -52,8 +59,47 @@ public final class DashboardActivity extends MainActivity {
         }
     };
 
+    private final Runnable followUpTask = new Runnable() {
+        @Override
+        public void run() {
+            if (!followUpRequested || isFinishing() || isDestroyed()) {
+                return;
+            }
+
+            boolean speaking = readMainBoolean("speaking");
+            if (speaking) {
+                followUpSawSpeech = true;
+                conversationHandler.postDelayed(this, FOLLOW_UP_POLL_MS);
+                return;
+            }
+
+            if (!followUpSawSpeech
+                    && System.currentTimeMillis() < followUpSpeechStartDeadline) {
+                conversationHandler.postDelayed(this, FOLLOW_UP_POLL_MS);
+                return;
+            }
+
+            followUpRequested = false;
+            conversationHandler.postDelayed(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (invokeMainListening()) {
+                    Toast.makeText(
+                        DashboardActivity.this,
+                        "Puoi continuare senza ripetere “Aurea”",
+                        Toast.LENGTH_SHORT
+                    ).show();
+                }
+            }, FOLLOW_UP_START_DELAY_MS);
+        }
+    };
+
     private AureaBrainClient brainClient;
     private boolean forwardingIdentityResult;
+    private boolean followUpRequested;
+    private boolean followUpSawSpeech;
+    private long followUpSpeechStartDeadline;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -71,12 +117,15 @@ public final class DashboardActivity extends MainActivity {
 
     @Override
     protected void onPause() {
+        cancelFollowUp();
         integrationHandler.removeCallbacks(integrationTask);
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        cancelFollowUp();
+        conversationHandler.removeCallbacksAndMessages(null);
         integrationHandler.removeCallbacksAndMessages(null);
         brainIo.shutdownNow();
         super.onDestroy();
@@ -120,11 +169,13 @@ public final class DashboardActivity extends MainActivity {
             return;
         }
 
+        cancelFollowUp();
         invokeMainState("think");
         String person = RegisteredUserAccess.currentPerson(this);
         brainIo.execute(() -> {
             AureaBrainClient.Result result = brainClient.process(command, person);
             runOnUiThread(() -> {
+                boolean offerFollowUp = shouldOfferFollowUp(result);
                 if (!invokeMainSpeak(result.answer)) {
                     Toast.makeText(
                         this,
@@ -132,15 +183,35 @@ public final class DashboardActivity extends MainActivity {
                         Toast.LENGTH_LONG
                     ).show();
                 }
-                if (result.continueConversation) {
-                    Toast.makeText(
-                        this,
-                        "AUREA attende una risposta: pronuncia di nuovo “Aurea”",
-                        Toast.LENGTH_LONG
-                    ).show();
+                if (offerFollowUp) {
+                    requestFollowUpAfterSpeech();
                 }
             });
         });
+    }
+
+    private boolean shouldOfferFollowUp(AureaBrainClient.Result result) {
+        AureaBrainStore store = new AureaBrainStore(this);
+        return result.continueConversation
+            || (store.isEnabled() && !store.agentId().isEmpty());
+    }
+
+    private void requestFollowUpAfterSpeech() {
+        conversationHandler.removeCallbacks(followUpTask);
+        followUpRequested = true;
+        followUpSawSpeech = false;
+        followUpSpeechStartDeadline = System.currentTimeMillis()
+            + FOLLOW_UP_SPEECH_START_WAIT_MS;
+        conversationHandler.postDelayed(
+            followUpTask,
+            FOLLOW_UP_INITIAL_DELAY_MS
+        );
+    }
+
+    private void cancelFollowUp() {
+        followUpRequested = false;
+        followUpSawSpeech = false;
+        conversationHandler.removeCallbacks(followUpTask);
     }
 
     private void refreshBrainConnection() {
@@ -169,6 +240,16 @@ public final class DashboardActivity extends MainActivity {
         }
     }
 
+    private boolean readMainBoolean(String fieldName) {
+        try {
+            Field field = MainActivity.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.getBoolean(this);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private boolean invokeMainSpeak(String text) {
         try {
             Method method = MainActivity.class.getDeclaredMethod(
@@ -177,6 +258,19 @@ public final class DashboardActivity extends MainActivity {
             );
             method.setAccessible(true);
             method.invoke(this, text);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean invokeMainListening() {
+        try {
+            Method method = MainActivity.class.getDeclaredMethod(
+                "startOneShotListening"
+            );
+            method.setAccessible(true);
+            method.invoke(this);
             return true;
         } catch (Exception ignored) {
             return false;
