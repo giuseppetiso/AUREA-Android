@@ -153,7 +153,7 @@ public final class AureaRoutineStudioActivity extends Activity {
         draftsContainer.setOrientation(LinearLayout.VERTICAL);
         root.addView(draftsContainer, fullWidthWithBottom(dp(14)));
 
-        Button clear = button("Cancella tutte le bozze Routine Studio");
+        Button clear = button("Cancella tutte le mie bozze Routine Studio");
         clear.setOnClickListener(view -> confirmClear());
         root.addView(clear, fullWidthWithBottom(dp(8)));
 
@@ -169,9 +169,10 @@ public final class AureaRoutineStudioActivity extends Activity {
             return;
         }
 
-        List<AureaRoutineDraftStore.Draft> drafts = draftStore.list();
+        List<AureaRoutineDraftStore.Draft> drafts =
+            AureaRoutineDraftAccess.listForPerson(draftStore, currentPerson);
         status.setText(
-            "Bozze salvate: " + drafts.size()
+            "Bozze personali salvate: " + drafts.size()
                 + "\nRestano soltanto sul tablet e non modificano Home Assistant."
         );
         draftsContainer.removeAllViews();
@@ -179,7 +180,7 @@ public final class AureaRoutineStudioActivity extends Activity {
         if (drafts.isEmpty()) {
             LinearLayout empty = card();
             TextView message = text(
-                "Nessuna bozza. Apri AUREA Insights e premi “Crea bozza automazione” "
+                "Nessuna bozza personale. Apri AUREA Insights e premi “Crea bozza automazione” "
                     + "su una routine compatibile.",
                 16,
                 Color.rgb(190, 210, 225)
@@ -433,19 +434,23 @@ public final class AureaRoutineStudioActivity extends Activity {
     }
 
     private void confirmClear() {
-        if (draftStore.count() == 0) {
-            Toast.makeText(this, "Non ci sono bozze da cancellare", Toast.LENGTH_SHORT).show();
+        if (AureaRoutineDraftAccess.countForPerson(draftStore, currentPerson) == 0) {
+            Toast.makeText(
+                this,
+                "Non ci sono bozze personali da cancellare",
+                Toast.LENGTH_SHORT
+            ).show();
             return;
         }
         new AlertDialog.Builder(this)
-            .setTitle("Cancellare tutte le bozze?")
+            .setTitle("Cancellare tutte le tue bozze?")
             .setMessage(
-                "Verranno eliminate soltanto le bozze locali. Insights, preferenze e "
-                    + "Home Assistant non cambieranno."
+                "Verranno eliminate soltanto le bozze del profilo " + currentPerson
+                    + ". Insights, preferenze, altre persone e Home Assistant non cambieranno."
             )
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Cancella", (dialog, which) -> {
-                draftStore.clear();
+                AureaRoutineDraftAccess.clearForPerson(draftStore, currentPerson);
                 refreshDrafts();
             })
             .show();
