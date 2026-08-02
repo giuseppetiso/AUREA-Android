@@ -151,6 +151,8 @@ final class AureaBrainStore {
 
     String initialContext(String person) {
         String identity = normalizedPerson(person);
+        String learningContext = new AureaLearningStore(context)
+            .promptContext(identity);
         return "Contesto AUREA, non ripeterlo integralmente all'utente: "
             + "stai parlando con " + identity + ", persona riconosciuta dal tablet AUREA. "
             + "Sei un assistente domestico prudente, concreto e in lingua italiana. "
@@ -158,7 +160,8 @@ final class AureaBrainStore {
             + "Non inventare stati o azioni. Se una richiesta è ambigua, fai una domanda breve. "
             + "Per serrature, allarme, alimentazione generale o operazioni potenzialmente pericolose, "
             + "richiedi conferma prima di agire. Mantieni il filo della conversazione e considera "
-            + "che i ricordi appartengono esclusivamente a " + identity + ".";
+            + "che i ricordi appartengono esclusivamente a " + identity + "."
+            + learningContext;
     }
 
     private JSONArray readDecisionLog() {

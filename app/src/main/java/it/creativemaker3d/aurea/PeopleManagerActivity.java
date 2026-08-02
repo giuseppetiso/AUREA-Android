@@ -40,6 +40,7 @@ public final class PeopleManagerActivity extends Activity {
     private IdentitySessionStore identityStore;
     private AdminAccessStore adminStore;
     private PersonPreferencesStore preferencesStore;
+    private AureaLearningStore learningStore;
     private boolean interfaceReady;
 
     @Override
@@ -57,6 +58,7 @@ public final class PeopleManagerActivity extends Activity {
         voiceStore = new VoiceProfileStore(this);
         identityStore = new IdentitySessionStore(this);
         preferencesStore = new PersonPreferencesStore(this);
+        learningStore = new AureaLearningStore(this);
         buildInterface();
         interfaceReady = true;
         hideSystemUi();
@@ -207,6 +209,11 @@ public final class PeopleManagerActivity extends Activity {
             status += " · Chiamato “" + preferences.spokenName + "”";
         }
 
+        int learned = learningStore.count(name);
+        if (learned > 0) {
+            status += " · " + learned + " preferenze apprese";
+        }
+
         TextView profileStatus = text(status, 14, Color.rgb(155, 205, 229));
         profileStatus.setPadding(0, dp(3), 0, dp(10));
         card.addView(profileStatus, fullWidth());
@@ -286,8 +293,9 @@ public final class PeopleManagerActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Eliminare " + name + "?")
             .setMessage(
-                "Verranno eliminate soltanto le firme locali del volto e della voce di "
-                    + name + ". Gli altri profili e Home Assistant non cambieranno."
+                "Verranno eliminate le firme locali di volto e voce, le preferenze personali "
+                    + "e i ricordi appresi di " + name
+                    + ". Gli altri profili e Home Assistant non cambieranno."
             )
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Elimina", (dialog, which) -> deletePerson(name))
@@ -302,6 +310,8 @@ public final class PeopleManagerActivity extends Activity {
         removeFaceProfile(name);
         voiceStore.deleteProfile(name);
         preferencesStore.delete(name);
+        learningStore.clear(name);
+        new AureaBrainStore(this).clearConversation(name);
         if (name.equalsIgnoreCase(identityStore.trustedPerson())) {
             identityStore.clearTrust();
         }

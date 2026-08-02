@@ -2,6 +2,7 @@ package it.creativemaker3d.aurea;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -37,8 +38,8 @@ import java.util.concurrent.Executors;
  * Configurazione locale di AUREA Brain.
  *
  * Permette di selezionare un conversation agent di Home Assistant senza
- * mostrare o modificare il token. Le conversazioni e il registro restano
- * esclusivamente sul tablet.
+ * mostrare o modificare il token. Le conversazioni, il registro e le
+ * preferenze apprese restano esclusivamente sul tablet.
  */
 public final class AureaBrainActivity extends Activity {
     private static final String HA_PREFS = "aurea";
@@ -48,6 +49,7 @@ public final class AureaBrainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     private AureaBrainStore brainStore;
+    private AureaLearningStore learningStore;
     private String currentPerson;
     private CheckBox enabled;
     private EditText agentId;
@@ -65,6 +67,7 @@ public final class AureaBrainActivity extends Activity {
         }
 
         brainStore = new AureaBrainStore(this);
+        learningStore = new AureaLearningStore(this);
         buildInterface();
         refreshStatus();
         hideSystemUi();
@@ -77,7 +80,9 @@ public final class AureaBrainActivity extends Activity {
         currentPerson = RegisteredUserAccess.currentPerson(this);
         if (currentPerson.isEmpty()) {
             denyAccess();
+            return;
         }
+        refreshStatus();
     }
 
     private void buildInterface() {
@@ -91,7 +96,7 @@ public final class AureaBrainActivity extends Activity {
         root.setPadding(dp(32), dp(20), dp(32), dp(20));
         scroll.addView(root, fullWidth());
 
-        TextView title = text("AUREA Brain 1.0", 29, Color.WHITE);
+        TextView title = text("AUREA Brain 1.1", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title, fullWidth());
 
@@ -148,6 +153,12 @@ public final class AureaBrainActivity extends Activity {
         status.setPadding(0, dp(6), 0, dp(10));
         memory.addView(status, fullWidth());
 
+        Button learning = button("Apri preferenze apprese di " + currentPerson);
+        learning.setOnClickListener(view -> startActivity(
+            new Intent(this, AureaLearningActivity.class)
+        ));
+        memory.addView(learning, fullWidthWithTop(dp(6)));
+
         Button resetConversation = button("Azzera conversazione di " + currentPerson);
         resetConversation.setOnClickListener(view -> {
             brainStore.clearConversation(currentPerson);
@@ -167,8 +178,8 @@ public final class AureaBrainActivity extends Activity {
         root.addView(memory, fullWidthWithBottom(dp(14)));
 
         TextView privacy = text(
-            "Il token Home Assistant non viene mostrato né copiato. Il registro resta sul tablet. "
-                + "AUREA non controlla dispositivi non esposti ad Assist.",
+            "Il token Home Assistant non viene mostrato né copiato. Il registro e le preferenze "
+                + "apprese restano sul tablet. AUREA non controlla dispositivi non esposti ad Assist.",
             14,
             Color.rgb(150, 172, 190)
         );
@@ -316,7 +327,7 @@ public final class AureaBrainActivity extends Activity {
     }
 
     private void refreshStatus() {
-        if (status == null || brainStore == null) {
+        if (status == null || brainStore == null || learningStore == null) {
             return;
         }
         String agent = brainStore.agentId();
@@ -325,6 +336,7 @@ public final class AureaBrainActivity extends Activity {
                 + "\nAgente: " + (agent.isEmpty() ? "predefinito Home Assistant" : agent)
                 + "\nConversazione personale: "
                 + (brainStore.hasActiveConversation(currentPerson) ? "attiva" : "vuota")
+                + "\nPreferenze apprese: " + learningStore.count(currentPerson)
                 + "\nDecisioni registrate: " + brainStore.decisionCount()
         );
     }
