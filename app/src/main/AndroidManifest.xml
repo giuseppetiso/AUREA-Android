@@ -28,6 +28,12 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <provider
+            android:name=".AureaResponsiveProvider"
+            android:authorities="${applicationId}.responsive"
+            android:exported="false"
+            android:initOrder="100" />
+
         <activity
             android:name=".HomeLauncherActivity"
             android:excludeFromRecents="true"
@@ -44,6 +50,7 @@
             android:name=".DashboardActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="true" />
 
         <activity-alias
@@ -55,53 +62,62 @@
             android:name=".UserToolsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".AureaBrainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".AureaLearningActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".AureaInsightsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".BackupRestoreActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".PeopleManagerActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".PeoplePreferencesActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:exported="false" />
 
         <activity
             android:name=".VoiceGateActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:theme="@style/Theme.Aurea.IdentityOverlay"
             android:exported="false" />
 
         <activity
             android:name=".FaceGateActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
             android:theme="@style/Theme.Aurea.IdentityOverlay"
             android:exported="false" />
     </application>
