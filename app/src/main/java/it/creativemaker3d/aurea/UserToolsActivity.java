@@ -149,6 +149,28 @@ public final class UserToolsActivity extends Activity {
         routineCard.addView(routine, fullWidthWithTop(dp(6)));
         root.addView(routineCard, fullWidthWithBottom(dp(14)));
 
+        AureaDiagnosticsLog diagnosticsLog = new AureaDiagnosticsLog(this);
+        LinearLayout diagnosticsCard = card();
+        TextView diagnosticsTitle = text("AUREA Diagnostics 1.0", 23, Color.WHITE);
+        diagnosticsCard.addView(diagnosticsTitle, fullWidth());
+
+        TextView diagnosticsDescription = text(
+            "Controlla Home Assistant, Gemini, microfono, wake word, profili, moduli locali "
+                + "e versione firmata. Eventi tecnici: " + diagnosticsLog.count()
+                + " · errori: " + diagnosticsLog.errorCount() + ".",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        diagnosticsDescription.setPadding(0, dp(6), 0, dp(12));
+        diagnosticsCard.addView(diagnosticsDescription, fullWidth());
+
+        Button diagnostics = button("Apri AUREA Diagnostics");
+        diagnostics.setOnClickListener(view -> startActivity(
+            new Intent(this, AureaDiagnosticsActivity.class)
+        ));
+        diagnosticsCard.addView(diagnostics, fullWidthWithTop(dp(6)));
+        root.addView(diagnosticsCard, fullWidthWithBottom(dp(14)));
+
         LinearLayout actionsCard = card();
         TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
         actionsCard.addView(actionsTitle, fullWidth());
@@ -185,7 +207,8 @@ public final class UserToolsActivity extends Activity {
 
         TextView backupDescription = text(
             "Salva profili, firme vocali e preferenze confermate in un file protetto da password. "
-                + "Osservazioni Insights, bozze Routine Studio e token Home Assistant restano esclusi.",
+                + "Osservazioni Insights, bozze Routine Studio, registro Diagnostics e token "
+                + "Home Assistant restano esclusi.",
             15,
             Color.rgb(190, 210, 225)
         );
@@ -329,5 +352,14 @@ public final class UserToolsActivity extends Activity {
                 );
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (updateManager != null) {
+            updateManager.close();
+            updateManager = null;
+        }
+        super.onDestroy();
     }
 }

@@ -94,6 +94,11 @@ public final class DashboardActivity extends MainActivity {
                         "Puoi continuare senza ripetere “Aurea”",
                         Toast.LENGTH_SHORT
                     ).show();
+                } else if (diagnosticsLog != null) {
+                    diagnosticsLog.warning(
+                        "Conversazione continua",
+                        "Riapertura automatica del microfono non riuscita"
+                    );
                 }
             }, FOLLOW_UP_START_DELAY_MS);
         }
@@ -112,6 +117,7 @@ public final class DashboardActivity extends MainActivity {
 
     private AureaBrainClient brainClient;
     private AureaInsightsObserver insightsObserver;
+    private AureaDiagnosticsLog diagnosticsLog;
     private boolean forwardingIdentityResult;
     private boolean followUpRequested;
     private boolean followUpSawSpeech;
@@ -121,6 +127,7 @@ public final class DashboardActivity extends MainActivity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        diagnosticsLog = new AureaDiagnosticsLog(this);
         refreshBrainConnection();
         startToolsIntegration();
     }
@@ -197,8 +204,21 @@ public final class DashboardActivity extends MainActivity {
         brainIo.execute(() -> {
             AureaBrainClient.Result result = brainClient.process(command, person);
             runOnUiThread(() -> {
+                if (result.answer.startsWith(
+                        "Non riesco a comunicare con il cervello di Home Assistant")) {
+                    diagnosticsLog.error(
+                        "AUREA Brain",
+                        "Comunicazione con l'agente conversazionale non riuscita",
+                        null
+                    );
+                }
+
                 boolean offerFollowUp = shouldOfferFollowUp(result);
                 if (!invokeMainSpeak(result.answer)) {
+                    diagnosticsLog.warning(
+                        "Sintesi vocale",
+                        "Riproduzione della risposta Brain tramite dashboard non riuscita"
+                    );
                     Toast.makeText(
                         this,
                         result.answer,
@@ -288,7 +308,14 @@ public final class DashboardActivity extends MainActivity {
                         Toast.LENGTH_LONG
                     ).show());
                 }
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                if (diagnosticsLog != null) {
+                    diagnosticsLog.error(
+                        "AUREA Insights",
+                        "Lettura periodica degli stati Home Assistant non riuscita",
+                        error
+                    );
+                }
             } finally {
                 insightsPollRunning = false;
             }
