@@ -28,7 +28,8 @@ import java.util.concurrent.Executors;
 
 final class UpdateManager {
     private static final String VERSION_URL =
-        "https://raw.githubusercontent.com/giuseppetiso/AUREA-Android/main/version.json";
+        "https://raw.githubusercontent.com/giuseppetiso/AUREA-Android/"
+            + "aurea-latest/version.json";
 
     private final Activity activity;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -70,7 +71,12 @@ final class UpdateManager {
                         Toast.makeText(activity, "AUREA è già aggiornata", Toast.LENGTH_SHORT).show();
                     }
                 });
-            } catch (Exception ignored) {
+            } catch (Exception error) {
+                new AureaDiagnosticsLog(activity).error(
+                    "Aggiornamenti",
+                    "Controllo del canale firmato non riuscito",
+                    error
+                );
                 if (showIfCurrent) {
                     activity.runOnUiThread(() -> Toast.makeText(
                         activity, "Controllo aggiornamenti non disponibile", Toast.LENGTH_LONG).show());
@@ -103,6 +109,9 @@ final class UpdateManager {
 
             DownloadManager manager =
                 (DownloadManager) activity.getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) {
+                throw new IllegalStateException("DownloadManager non disponibile");
+            }
             downloadId = manager.enqueue(request);
 
             IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
@@ -113,6 +122,11 @@ final class UpdateManager {
             }
             Toast.makeText(activity, "Download aggiornamento avviato", Toast.LENGTH_SHORT).show();
         } catch (Exception error) {
+            new AureaDiagnosticsLog(activity).error(
+                "Aggiornamenti",
+                "Avvio download APK non riuscito",
+                error
+            );
             Toast.makeText(activity, "Impossibile avviare il download", Toast.LENGTH_LONG).show();
         }
     }
@@ -127,26 +141,42 @@ final class UpdateManager {
     };
 
     private void openInstaller() {
-        if (Build.VERSION.SDK_INT >= 26 &&
-            !activity.getPackageManager().canRequestPackageInstalls()) {
-            Intent permission = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:" + activity.getPackageName()));
-            Toast.makeText(activity,
-                "Consenti installazioni da AUREA, poi ripeti l’aggiornamento",
-                Toast.LENGTH_LONG).show();
-            waitingInstallPermission = true;
-            activity.startActivity(permission);
-            return;
-        }
+        try {
+            if (Build.VERSION.SDK_INT >= 26 &&
+                !activity.getPackageManager().canRequestPackageInstalls()) {
+                Intent permission = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + activity.getPackageName()));
+                Toast.makeText(activity,
+                    "Consenti installazioni da AUREA, poi ripeti l’aggiornamento",
+                    Toast.LENGTH_LONG).show();
+                waitingInstallPermission = true;
+                activity.startActivity(permission);
+                return;
+            }
 
-        File apk = new File(activity.getExternalFilesDir(
-            Environment.DIRECTORY_DOWNLOADS), "AUREA-update.apk");
-        Uri uri = FileProvider.getUriForFile(activity,
-            activity.getPackageName() + ".fileprovider", apk);
-        Intent install = new Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, "application/vnd.android.package-archive")
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        activity.startActivity(install);
+            File apk = new File(activity.getExternalFilesDir(
+                Environment.DIRECTORY_DOWNLOADS), "AUREA-update.apk");
+            if (!apk.isFile()) {
+                throw new IllegalStateException("APK scaricato non trovato");
+            }
+            Uri uri = FileProvider.getUriForFile(activity,
+                activity.getPackageName() + ".fileprovider", apk);
+            Intent install = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity.startActivity(install);
+        } catch (Exception error) {
+            new AureaDiagnosticsLog(activity).error(
+                "Aggiornamenti",
+                "Apertura installazione APK non riuscita",
+                error
+            );
+            Toast.makeText(
+                activity,
+                "Impossibile aprire l'installazione dell'aggiornamento",
+                Toast.LENGTH_LONG
+            ).show();
+        }
     }
 
     void resumePendingInstall() {
