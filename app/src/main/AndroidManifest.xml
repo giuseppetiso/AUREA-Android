@@ -94,6 +94,13 @@
             android:exported="false" />
 
         <activity
+            android:name=".AureaRoutineInstallerActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
+            android:exported="false" />
+
+        <activity
             android:name=".AureaDiagnosticsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:screenOrientation="sensorLandscape"
