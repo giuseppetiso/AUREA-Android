@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -33,12 +34,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Centro diagnostico locale di AUREA.
- *
- * Non installa automazioni, non comanda dispositivi e non esporta token,
- * chiavi API, immagini, firme vocali o testo delle conversazioni.
- */
+/** Centro diagnostico locale e in sola lettura di AUREA. */
 public final class AureaDiagnosticsActivity extends Activity
         implements RecognitionListener, TextToSpeech.OnInitListener {
     private static final int AUDIO_PERMISSION_REQUEST = 901;
@@ -48,13 +44,11 @@ public final class AureaDiagnosticsActivity extends Activity
     private AureaDiagnosticsLog diagnosticsLog;
     private AureaDiagnosticsProbe.Snapshot snapshot;
     private String currentPerson;
-
     private TextView headline;
     private TextView summary;
     private LinearLayout checksContainer;
     private LinearLayout eventsContainer;
     private Button runButton;
-
     private TextToSpeech tts;
     private boolean ttsReady;
     private SpeechRecognizer recognizer;
@@ -64,16 +58,14 @@ public final class AureaDiagnosticsActivity extends Activity
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
         currentPerson = RegisteredUserAccess.currentPerson(this);
         if (currentPerson.isEmpty()) {
             denyAccess();
             return;
         }
-
         diagnosticsLog = new AureaDiagnosticsLog(this);
         buildInterface();
-        initializeTts();
+        tts = new TextToSpeech(this, this);
         hideSystemUi();
         runDiagnostics();
     }
@@ -83,9 +75,7 @@ public final class AureaDiagnosticsActivity extends Activity
         super.onResume();
         hideSystemUi();
         currentPerson = RegisteredUserAccess.currentPerson(this);
-        if (currentPerson.isEmpty()) {
-            denyAccess();
-        }
+        if (currentPerson.isEmpty()) denyAccess();
     }
 
     private void buildInterface() {
@@ -116,7 +106,6 @@ public final class AureaDiagnosticsActivity extends Activity
         headline = text("DIAGNOSI IN CORSO", 22, Color.rgb(255, 210, 90));
         headline.setGravity(Gravity.CENTER);
         stateCard.addView(headline, fullWidth());
-
         summary = text(
             "Sto controllando AUREA e Home Assistant in sola lettura.",
             15,
@@ -125,7 +114,6 @@ public final class AureaDiagnosticsActivity extends Activity
         summary.setGravity(Gravity.CENTER);
         summary.setPadding(0, dp(7), 0, dp(8));
         stateCard.addView(summary, fullWidth());
-
         runButton = button("Esegui nuovamente la diagnosi completa");
         runButton.setOnClickListener(view -> runDiagnostics());
         stateCard.addView(runButton, fullWidthWithTop(dp(5)));
@@ -133,49 +121,32 @@ public final class AureaDiagnosticsActivity extends Activity
 
         LinearLayout checksCard = card();
         checksCard.addView(text("Controlli automatici", 22, Color.WHITE), fullWidth());
-        TextView checksHelp = text(
-            "Le richieste verso Home Assistant sono esclusivamente GET e non modificano entità.",
-            14,
-            Color.rgb(165, 190, 208)
-        );
-        checksHelp.setPadding(0, dp(4), 0, dp(10));
-        checksCard.addView(checksHelp, fullWidth());
-
-        checksContainer = new LinearLayout(this);
-        checksContainer.setOrientation(LinearLayout.VERTICAL);
+        checksCard.addView(help(
+            "Le richieste verso Home Assistant sono esclusivamente GET e non modificano entità."
+        ), fullWidth());
+        checksContainer = vertical();
         checksCard.addView(checksContainer, fullWidth());
         root.addView(checksCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout manualCard = card();
         manualCard.addView(text("Test e ripristini sicuri", 22, Color.WHITE), fullWidth());
+        manualCard.addView(help(
+            "I test non memorizzano ciò che pronunci. Il riavvio ricarica soltanto AUREA."
+        ), fullWidth());
 
-        TextView manualHelp = text(
-            "I test non memorizzano ciò che pronunci. Il riavvio wake word ricarica soltanto AUREA.",
-            14,
-            Color.rgb(165, 190, 208)
-        );
-        manualHelp.setPadding(0, dp(4), 0, dp(10));
-        manualCard.addView(manualHelp, fullWidth());
-
-        LinearLayout firstRow = new LinearLayout(this);
-        firstRow.setOrientation(LinearLayout.HORIZONTAL);
-
+        LinearLayout firstRow = horizontal();
         Button ttsTest = button("Prova voce AUREA");
         ttsTest.setOnClickListener(view -> testTts());
         firstRow.addView(ttsTest, weighted());
-
         Button microphoneTest = button("Prova microfono");
         microphoneTest.setOnClickListener(view -> startMicrophoneTest());
         firstRow.addView(microphoneTest, weightedWithStart(dp(7)));
         manualCard.addView(firstRow, fullWidth());
 
-        LinearLayout secondRow = new LinearLayout(this);
-        secondRow.setOrientation(LinearLayout.HORIZONTAL);
-
+        LinearLayout secondRow = horizontal();
         Button resetGemini = button("Azzera sessione Gemini");
         resetGemini.setOnClickListener(view -> confirmResetGemini());
         secondRow.addView(resetGemini, weighted());
-
         Button restartWake = button("Riavvia ascolto e wake word");
         restartWake.setOnClickListener(view -> confirmRestartWakeWord());
         secondRow.addView(restartWake, weightedWithStart(dp(7)));
@@ -184,18 +155,11 @@ public final class AureaDiagnosticsActivity extends Activity
 
         LinearLayout eventsCard = card();
         eventsCard.addView(text("Ultimi eventi tecnici", 22, Color.WHITE), fullWidth());
-        TextView eventsHelp = text(
-            "Registro limitato e sanificato: nessun token, chiave API o testo delle conversazioni.",
-            14,
-            Color.rgb(165, 190, 208)
-        );
-        eventsHelp.setPadding(0, dp(4), 0, dp(10));
-        eventsCard.addView(eventsHelp, fullWidth());
-
-        eventsContainer = new LinearLayout(this);
-        eventsContainer.setOrientation(LinearLayout.VERTICAL);
+        eventsCard.addView(help(
+            "Registro limitato e sanificato: nessun token, chiave API o testo delle conversazioni."
+        ), fullWidth());
+        eventsContainer = vertical();
         eventsCard.addView(eventsContainer, fullWidth());
-
         Button clearEvents = button("Cancella soltanto il registro tecnico");
         clearEvents.setOnClickListener(view -> confirmClearEvents());
         eventsCard.addView(clearEvents, fullWidthWithTop(dp(8)));
@@ -203,21 +167,13 @@ public final class AureaDiagnosticsActivity extends Activity
 
         LinearLayout reportCard = card();
         reportCard.addView(text("Rapporto diagnostico", 22, Color.WHITE), fullWidth());
-        TextView reportHelp = text(
-            "Il rapporto può essere copiato e inviato per l'analisi senza esporre credenziali o biometria.",
-            14,
-            Color.rgb(165, 190, 208)
-        );
-        reportHelp.setPadding(0, dp(4), 0, dp(10));
-        reportCard.addView(reportHelp, fullWidth());
-
-        LinearLayout reportActions = new LinearLayout(this);
-        reportActions.setOrientation(LinearLayout.HORIZONTAL);
-
+        reportCard.addView(help(
+            "Il rapporto è copiabile senza esporre credenziali o dati biometrici."
+        ), fullWidth());
+        LinearLayout reportActions = horizontal();
         Button showReport = button("Mostra rapporto");
         showReport.setOnClickListener(view -> showReport());
         reportActions.addView(showReport, weighted());
-
         Button copyReport = button("Copia rapporto");
         copyReport.setOnClickListener(view -> copyReport());
         reportActions.addView(copyReport, weightedWithStart(dp(7)));
@@ -227,23 +183,19 @@ public final class AureaDiagnosticsActivity extends Activity
         Button close = button("Torna agli strumenti AUREA");
         close.setOnClickListener(view -> finish());
         root.addView(close, fullWidth());
-
         setContentView(scroll);
         refreshEvents();
     }
 
     private void runDiagnostics() {
-        if (runButton != null) {
-            runButton.setEnabled(false);
-            runButton.setText("Diagnosi in corso...");
-        }
+        runButton.setEnabled(false);
+        runButton.setText("Diagnosi in corso...");
         headline.setText("DIAGNOSI IN CORSO");
         headline.setTextColor(Color.rgb(255, 210, 90));
         summary.setText("Controllo Home Assistant, Gemini, audio, profili e moduli locali.");
 
         io.execute(() -> {
-            AureaDiagnosticsProbe.Snapshot result =
-                new AureaDiagnosticsProbe(this).run();
+            AureaDiagnosticsProbe.Snapshot result = new AureaDiagnosticsProbe(this).run();
             runOnUiThread(() -> {
                 snapshot = result;
                 renderSnapshot(result);
@@ -256,60 +208,50 @@ public final class AureaDiagnosticsActivity extends Activity
 
     private void renderSnapshot(AureaDiagnosticsProbe.Snapshot result) {
         headline.setText(result.headline());
-        if (result.errors > 0) {
-            headline.setTextColor(Color.rgb(255, 115, 115));
-        } else if (result.warnings > 0) {
-            headline.setTextColor(Color.rgb(255, 210, 90));
-        } else {
-            headline.setTextColor(Color.rgb(112, 230, 154));
-        }
-
+        headline.setTextColor(result.errors > 0
+            ? Color.rgb(255, 115, 115)
+            : result.warnings > 0
+                ? Color.rgb(255, 210, 90)
+                : Color.rgb(112, 230, 154));
         summary.setText(
             "Versione installata: " + result.installedVersion
                 + " · canale firmato: "
-                + (result.signedVersion.isEmpty()
-                    ? "non disponibile"
-                    : result.signedVersion)
-                + "\nProblemi: " + result.errors
-                + " · avvisi: " + result.warnings
+                + (result.signedVersion.isEmpty() ? "non disponibile" : result.signedVersion)
+                + "\nProblemi: " + result.errors + " · avvisi: " + result.warnings
         );
-
         checksContainer.removeAllViews();
         for (AureaDiagnosticsProbe.Check check : result.checks) {
-            checksContainer.addView(
-                checkView(check),
-                fullWidthWithBottom(dp(8))
-            );
+            checksContainer.addView(checkView(check), fullWidthWithBottom(dp(8)));
         }
     }
 
     private View checkView(AureaDiagnosticsProbe.Check check) {
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout panel = vertical();
         panel.setPadding(dp(15), dp(11), dp(15), dp(11));
-
         int border;
         String prefix;
-        if (check.status == AureaDiagnosticsProbe.Status.OK) {
-            border = Color.rgb(64, 154, 102);
-            prefix = "OK · ";
-        } else if (check.status == AureaDiagnosticsProbe.Status.WARNING) {
-            border = Color.rgb(184, 137, 42);
-            prefix = "AVVISO · ";
-        } else if (check.status == AureaDiagnosticsProbe.Status.ERROR) {
-            border = Color.rgb(181, 70, 70);
-            prefix = "ERRORE · ";
-        } else {
-            border = Color.rgb(55, 105, 139);
-            prefix = "INFO · ";
+        switch (check.status) {
+            case OK:
+                border = Color.rgb(64, 154, 102);
+                prefix = "OK · ";
+                break;
+            case WARNING:
+                border = Color.rgb(184, 137, 42);
+                prefix = "AVVISO · ";
+                break;
+            case ERROR:
+                border = Color.rgb(181, 70, 70);
+                prefix = "ERRORE · ";
+                break;
+            default:
+                border = Color.rgb(55, 105, 139);
+                prefix = "INFO · ";
         }
-
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.rgb(20, 37, 51));
         background.setCornerRadius(dp(11));
         background.setStroke(dp(1), border);
         panel.setBackground(background);
-
         panel.addView(text(prefix + check.title, 17, Color.WHITE), fullWidth());
         TextView detail = text(check.detail, 14, Color.rgb(182, 207, 224));
         detail.setPadding(0, dp(4), 0, 0);
@@ -331,9 +273,7 @@ public final class AureaDiagnosticsActivity extends Activity
             eventsContainer.addView(empty, fullWidth());
             return;
         }
-
-        int limit = Math.min(8, entries.size());
-        for (int index = 0; index < limit; index++) {
+        for (int index = 0; index < Math.min(8, entries.size()); index++) {
             AureaDiagnosticsLog.Entry entry = entries.get(index);
             TextView event = text(
                 entry.label(),
@@ -347,36 +287,22 @@ public final class AureaDiagnosticsActivity extends Activity
         }
     }
 
-    private void initializeTts() {
-        tts = new TextToSpeech(this, this);
-    }
-
     @Override
     public void onInit(int status) {
         if (status != TextToSpeech.SUCCESS || tts == null) {
             ttsReady = false;
-            diagnosticsLog.error(
-                "Sintesi vocale",
-                "Inizializzazione TTS non riuscita",
-                null
-            );
+            diagnosticsLog.error("Sintesi vocale", "Inizializzazione TTS non riuscita", null);
             return;
         }
-
         int language = tts.setLanguage(Locale.ITALIAN);
         ttsReady = language != TextToSpeech.LANG_MISSING_DATA
             && language != TextToSpeech.LANG_NOT_SUPPORTED;
         if (!ttsReady) {
-            diagnosticsLog.warning(
-                "Sintesi vocale",
-                "Lingua italiana non disponibile nel motore TTS"
-            );
+            diagnosticsLog.warning("Sintesi vocale", "Lingua italiana non disponibile");
         }
-
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String utteranceId) {
             }
-
             @Override public void onDone(String utteranceId) {
                 runOnUiThread(() -> Toast.makeText(
                     AureaDiagnosticsActivity.this,
@@ -384,7 +310,6 @@ public final class AureaDiagnosticsActivity extends Activity
                     Toast.LENGTH_SHORT
                 ).show());
             }
-
             @Override public void onError(String utteranceId) {
                 diagnosticsLog.error(
                     "Sintesi vocale",
@@ -397,16 +322,11 @@ public final class AureaDiagnosticsActivity extends Activity
 
     private void testTts() {
         if (!ttsReady || tts == null) {
-            Toast.makeText(
-                this,
-                "Sintesi vocale non ancora pronta o non disponibile",
-                Toast.LENGTH_LONG
-            ).show();
             diagnosticsLog.warning("Sintesi vocale", "Test richiesto ma TTS non pronto");
             refreshEvents();
+            Toast.makeText(this, "Sintesi vocale non disponibile", Toast.LENGTH_LONG).show();
             return;
         }
-
         int result = tts.speak(
             "Test audio AUREA riuscito.",
             TextToSpeech.QUEUE_FLUSH,
@@ -433,24 +353,15 @@ public final class AureaDiagnosticsActivity extends Activity
             return;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            diagnosticsLog.error(
-                "Microfono",
-                "Motore di riconoscimento Android non disponibile",
-                null
-            );
+            diagnosticsLog.error("Microfono", "Riconoscimento Android non disponibile", null);
             refreshEvents();
-            Toast.makeText(
-                this,
-                "Riconoscimento vocale Android non disponibile",
-                Toast.LENGTH_LONG
-            ).show();
+            Toast.makeText(this, "Riconoscimento vocale non disponibile", Toast.LENGTH_LONG).show();
             return;
         }
 
         destroyRecognizer();
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(this);
-
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(
             RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -463,7 +374,6 @@ public final class AureaDiagnosticsActivity extends Activity
             RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
             1000L
         );
-
         try {
             microphoneTestRunning = true;
             recognizer.startListening(intent);
@@ -488,9 +398,8 @@ public final class AureaDiagnosticsActivity extends Activity
         if (requestCode != AUDIO_PERMISSION_REQUEST) return;
         boolean granted = grantResults.length > 0
             && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-        if (granted) {
-            startMicrophoneTest();
-        } else {
+        if (granted) startMicrophoneTest();
+        else {
             diagnosticsLog.warning("Microfono", "Permesso microfono negato");
             refreshEvents();
         }
@@ -513,7 +422,7 @@ public final class AureaDiagnosticsActivity extends Activity
         String description = speechError(error);
         if (error == SpeechRecognizer.ERROR_NO_MATCH
                 || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-            diagnosticsLog.warning("Microfono", "Test senza frase riconosciuta: " + description);
+            diagnosticsLog.warning("Microfono", "Test senza frase: " + description);
         } else {
             diagnosticsLog.error("Microfono", "Test fallito: " + description, null);
         }
@@ -585,10 +494,7 @@ public final class AureaDiagnosticsActivity extends Activity
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Azzera", (dialog, which) -> {
                 new AureaBrainStore(this).clearConversation(currentPerson);
-                diagnosticsLog.info(
-                    "Gemini",
-                    "Sessione conversazione azzerata per il profilo attivo"
-                );
+                diagnosticsLog.info("Gemini", "Sessione del profilo attivo azzerata");
                 refreshEvents();
                 runDiagnostics();
             })
@@ -599,7 +505,7 @@ public final class AureaDiagnosticsActivity extends Activity
         new AlertDialog.Builder(this)
             .setTitle("Riavviare ascolto e wake word?")
             .setMessage(
-                "AUREA tornerà alla dashboard e ricreerà microfono, sintesi vocale e ascolto locale."
+                "AUREA tornerà alla dashboard e ricreerà microfono, voce e ascolto locale."
             )
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Riavvia", (dialog, which) -> restartAurea())
@@ -607,7 +513,7 @@ public final class AureaDiagnosticsActivity extends Activity
     }
 
     private void restartAurea() {
-        diagnosticsLog.info("Wake word", "Riavvio controllato richiesto dall'utente");
+        diagnosticsLog.info("Wake word", "Riavvio controllato richiesto");
         Intent launcher = new Intent(this, HomeLauncherActivity.class);
         launcher.addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK
@@ -623,8 +529,8 @@ public final class AureaDiagnosticsActivity extends Activity
         new AlertDialog.Builder(this)
             .setTitle("Cancellare il registro tecnico?")
             .setMessage(
-                "Saranno cancellati soltanto gli eventi diagnostici. Profili, preferenze, "
-                    + "bozze, token e configurazione non cambieranno."
+                "Saranno cancellati soltanto gli eventi diagnostici. Profili e configurazione "
+                    + "non cambieranno."
             )
             .setNegativeButton("Annulla", null)
             .setPositiveButton("Cancella", (dialog, which) -> {
@@ -645,17 +551,14 @@ public final class AureaDiagnosticsActivity extends Activity
             Toast.makeText(this, "Completa prima la diagnosi", Toast.LENGTH_LONG).show();
             return;
         }
-
         TextView content = text(report, 14, Color.rgb(20, 28, 34));
         content.setTextIsSelectable(true);
         content.setPadding(dp(18), dp(14), dp(18), dp(14));
-
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content, new ScrollView.LayoutParams(
             ScrollView.LayoutParams.MATCH_PARENT,
             ScrollView.LayoutParams.WRAP_CONTENT
         ));
-
         new AlertDialog.Builder(this)
             .setTitle("Rapporto AUREA Diagnostics")
             .setView(scroll)
@@ -687,20 +590,16 @@ public final class AureaDiagnosticsActivity extends Activity
         ));
         Toast.makeText(
             this,
-            "Rapporto diagnostico copiato senza credenziali o dati biometrici",
+            "Rapporto copiato senza credenziali o dati biometrici",
             Toast.LENGTH_LONG
         ).show();
     }
 
     private void destroyRecognizer() {
         if (recognizer != null) {
-            try {
-                recognizer.cancel();
-            } catch (Exception ignored) {
+            try { recognizer.cancel(); } catch (Exception ignored) {
             }
-            try {
-                recognizer.destroy();
-            } catch (Exception ignored) {
+            try { recognizer.destroy(); } catch (Exception ignored) {
             }
             recognizer = null;
         }
@@ -717,8 +616,7 @@ public final class AureaDiagnosticsActivity extends Activity
     }
 
     private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout card = vertical();
         card.setPadding(dp(20), dp(15), dp(20), dp(15));
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.rgb(12, 25, 37));
@@ -726,6 +624,24 @@ public final class AureaDiagnosticsActivity extends Activity
         background.setStroke(dp(1), Color.rgb(45, 78, 101));
         card.setBackground(background);
         return card;
+    }
+
+    private LinearLayout vertical() {
+        LinearLayout view = new LinearLayout(this);
+        view.setOrientation(LinearLayout.VERTICAL);
+        return view;
+    }
+
+    private LinearLayout horizontal() {
+        LinearLayout view = new LinearLayout(this);
+        view.setOrientation(LinearLayout.HORIZONTAL);
+        return view;
+    }
+
+    private TextView help(String value) {
+        TextView view = text(value, 14, Color.rgb(165, 190, 208));
+        view.setPadding(0, dp(4), 0, dp(10));
+        return view;
     }
 
     private TextView text(String value, int size, int color) {
