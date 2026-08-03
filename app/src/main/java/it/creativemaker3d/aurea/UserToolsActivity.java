@@ -149,6 +149,36 @@ public final class UserToolsActivity extends Activity {
         routineCard.addView(routine, fullWidthWithTop(dp(6)));
         root.addView(routineCard, fullWidthWithBottom(dp(14)));
 
+        if (AdminAccessStore.ADMIN_NAME.equalsIgnoreCase(currentPerson)) {
+            AureaRoutineInstallationStore installationStore =
+                new AureaRoutineInstallationStore(this);
+            LinearLayout installerCard = card();
+            TextView installerTitle = text(
+                "AUREA Routine Installer 1.0 · Amministratore",
+                23,
+                Color.WHITE
+            );
+            installerCard.addView(installerTitle, fullWidth());
+
+            TextView installerDescription = text(
+                "Installa una bozza soltanto con Routine Guard SUPERATA e doppia conferma. "
+                    + "Le automazioni vengono create disattivate e mai sovrascritte. "
+                    + "Installazioni registrate: "
+                    + installationStore.countForPerson(currentPerson) + ".",
+                15,
+                Color.rgb(190, 210, 225)
+            );
+            installerDescription.setPadding(0, dp(6), 0, dp(12));
+            installerCard.addView(installerDescription, fullWidth());
+
+            Button installer = button("Apri AUREA Routine Installer");
+            installer.setOnClickListener(view -> startActivity(
+                new Intent(this, AureaRoutineInstallerActivity.class)
+            ));
+            installerCard.addView(installer, fullWidthWithTop(dp(6)));
+            root.addView(installerCard, fullWidthWithBottom(dp(14)));
+        }
+
         AureaDiagnosticsLog diagnosticsLog = new AureaDiagnosticsLog(this);
         LinearLayout diagnosticsCard = card();
         TextView diagnosticsTitle = text("AUREA Diagnostics 1.0", 23, Color.WHITE);
