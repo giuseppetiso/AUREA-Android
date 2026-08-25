@@ -38,6 +38,17 @@ La luminosità viene ridotta dopo 50 secondi senza volto o interazione e torna
 subito normale al rilevamento o al tocco. Da 45 °C la fotocamera viene sospesa
 automaticamente e riparte quando il tablet torna a una temperatura sicura.
 
+## AUREA Identity passiva
+
+Quando AUREA Presence rileva un volto sufficientemente vicino e frontale,
+confronta localmente una firma temporanea con i profili già registrati. Servono
+più corrispondenze consecutive; i casi dubbi restano `sconosciuto`. Home
+Assistant riceve soltanto il risultato tramite
+`sensor.aurea_tablet_recognized_person`, mai fotografie o firme biometriche.
+Il sensore è destinato alla personalizzazione e non autorizza portoni, allarmi,
+pagamenti o altre azioni sensibili. Il riconoscimento può essere disattivato
+separatamente da Strumenti AUREA.
+
 Le anomalie nuove o cambiate vengono affidate a
 `script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
 email configurato in Home Assistant. La stessa anomalia non viene ripetuta

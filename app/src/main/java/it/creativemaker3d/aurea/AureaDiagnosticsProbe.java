@@ -380,6 +380,17 @@ final class AureaDiagnosticsProbe {
                 + " Nessuna immagine viene conservata."
         ));
 
+        boolean identityEnabled = AureaPresenceController.isRecognitionEnabled(context);
+        int faceProfiles = AureaPassiveFaceRecognizer.profileCount(context);
+        checks.add(new Check(
+            "AUREA Identity passiva",
+            identityEnabled && faceProfiles == 0 ? Status.WARNING : Status.INFO,
+            "Riconoscimento locale: " + (identityEnabled ? "attivo" : "disattivato")
+                + " · profili disponibili: " + faceProfiles
+                + " · " + AureaIdentityPublisher.summary(context)
+                + " Il risultato non autorizza azioni sensibili."
+        ));
+
         int memories = new AureaLearningStore(context).count(person);
         int drafts = AureaRoutineDraftAccess.countForPerson(
             new AureaRoutineDraftStore(context),

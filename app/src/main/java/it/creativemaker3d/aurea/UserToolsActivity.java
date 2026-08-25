@@ -202,12 +202,13 @@ public final class UserToolsActivity extends Activity {
         root.addView(diagnosticsCard, fullWidthWithBottom(dp(14)));
 
         boolean presenceEnabled = AureaPresenceController.isEnabled(this);
+        boolean recognitionEnabled = AureaPresenceController.isRecognitionEnabled(this);
         LinearLayout presenceCard = card();
-        presenceCard.addView(text("AUREA Presence 1.0", 23, Color.WHITE), fullWidth());
+        presenceCard.addView(text("AUREA Presence & Identity 1.1", 23, Color.WHITE), fullWidth());
         TextView presenceDescription = text(
             "Rileva localmente una persona davanti al tablet, riduce la luminosità quando "
-                + "non serve e si sospende automaticamente in caso di temperatura elevata. "
-                + "Nessuna immagine viene salvata o inviata.",
+                + "non serve e, se autorizzato, confronta il volto con i profili locali. "
+                + "Persone dubbie restano sconosciute. Nessuna immagine viene salvata o inviata.",
             15,
             Color.rgb(190, 210, 225)
         );
@@ -227,6 +228,24 @@ public final class UserToolsActivity extends Activity {
             recreate();
         });
         presenceCard.addView(presence, fullWidthWithTop(dp(6)));
+
+        Button recognition = button(recognitionEnabled
+            ? "Disattiva riconoscimento profili"
+            : "Attiva riconoscimento profili");
+        recognition.setEnabled(presenceEnabled);
+        recognition.setOnClickListener(view -> {
+            boolean enabled = !AureaPresenceController.isRecognitionEnabled(this);
+            AureaPresenceController.setRecognitionEnabled(this, enabled);
+            Toast.makeText(
+                this,
+                enabled
+                    ? "Riconoscimento locale attivo"
+                    : "Riconoscimento locale disattivato",
+                Toast.LENGTH_LONG
+            ).show();
+            recreate();
+        });
+        presenceCard.addView(recognition, fullWidthWithTop(dp(8)));
         root.addView(presenceCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout actionsCard = card();
