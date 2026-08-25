@@ -60,6 +60,7 @@ public final class AureaApplication extends Application
     public void onCreate() {
         super.onCreate();
         migrateTabletDashboardUrl();
+        AureaDiagnosticsScheduler.schedule(this);
         identityStore = new IdentitySessionStore(this);
         adminStore = new AdminAccessStore(this);
         registerActivityLifecycleCallbacks(this);

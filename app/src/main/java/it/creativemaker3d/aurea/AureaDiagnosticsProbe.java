@@ -28,8 +28,8 @@ import java.util.Locale;
 /**
  * Esegue controlli diagnostici senza modificare Home Assistant.
  *
- * Le sole richieste di rete sono GET verso Home Assistant e verso il file
- * version.json del canale firmato aurea-latest.
+ * Questa sonda usa soltanto GET. La pubblicazione del rapporto sanificato è
+ * responsabilità separata di {@link AureaDiagnosticsPublisher}.
  */
 final class AureaDiagnosticsProbe {
     private static final String HA_PREFS = "aurea";
@@ -93,7 +93,7 @@ final class AureaDiagnosticsProbe {
 
         String report(AureaDiagnosticsLog log) {
             StringBuilder report = new StringBuilder();
-            report.append("AUREA DIAGNOSTICS 1.0\n");
+            report.append("AUREA DIAGNOSTICS 2.0\n");
             report.append("Generato: ").append(
                 DateFormat.getDateTimeInstance(
                     DateFormat.MEDIUM,

@@ -1,4 +1,4 @@
-# AUREA Android 0.1
+# AUREA Android
 
 Prototipo nativo per il tablet P90.
 
@@ -11,6 +11,24 @@ Prototipo nativo per il tablet P90.
 - invio del comando testuale all'API Conversation di Home Assistant;
 - risposta vocale tramite la voce italiana installata nel tablet;
 - schermo intero e display mantenuto acceso mentre AUREA è aperta.
+
+## Monitor diagnostico automatico
+
+AUREA Diagnostics 2.0 controlla il tablet e l'integrazione con Home Assistant
+ogni 30 minuti, anche quando la schermata Diagnostics non è aperta. Pubblica:
+
+- `sensor.aurea_tablet_diagnostics`, con esito, conteggio problemi e riepilogo
+  sanificato;
+- `sensor.aurea_tablet_heartbeat`, con l'ultimo controllo riuscito.
+
+Le anomalie nuove o cambiate vengono affidate a
+`script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
+email configurato in Home Assistant. La stessa anomalia non viene ripetuta
+prima di 12 ore. Il ripristino genera una comunicazione e, in condizioni
+regolari, viene inviata al massimo una email riepilogativa al giorno.
+
+Il tablet conserva soltanto URL e token Home Assistant già richiesti da AUREA:
+nessuna credenziale email viene memorizzata nell'app.
 
 ## Sicurezza
 
