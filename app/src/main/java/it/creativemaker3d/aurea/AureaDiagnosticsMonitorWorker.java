@@ -18,6 +18,7 @@ public final class AureaDiagnosticsMonitorWorker extends Worker {
     @Override
     public Result doWork() {
         Context context = getApplicationContext();
+        new AureaHomeAssistantMaintenance(context).applyPresenceAuditPatch();
         AureaDiagnosticsProbe.Snapshot snapshot = new AureaDiagnosticsProbe(context).run();
         AureaDiagnosticsPublisher.PublishResult delivery =
             new AureaDiagnosticsPublisher(context).publish(snapshot);
