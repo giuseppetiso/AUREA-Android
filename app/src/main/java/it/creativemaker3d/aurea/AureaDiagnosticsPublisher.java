@@ -38,6 +38,7 @@ final class AureaDiagnosticsPublisher {
     private static final String KEY_LAST_PUBLISH_STATUS = "last_publish_status";
     private static final String KEY_LAST_DELIVERY = "last_delivery";
     private static final String KEY_LAST_ALERT_FINGERPRINT = "last_alert_fingerprint";
+    private static final String KEY_FINGERPRINT_VERSION = "fingerprint_version";
     private static final String KEY_LAST_ALERT_TIME = "last_alert_time";
     private static final String KEY_LAST_DAILY_DAY = "last_daily_day";
     private static final String KEY_PREVIOUS_STATUS = "previous_status";
@@ -49,6 +50,8 @@ final class AureaDiagnosticsPublisher {
     private static final String LEGACY_EMAIL_SERVICE =
         "/api/services/notify/home_assistant_casa_giuseppe_tiso";
     private static final long SAME_ANOMALY_REMINDER_MS = 12L * 60L * 60L * 1000L;
+    private static final int FINGERPRINT_VERSION = 2;
+    private static final Object PUBLISH_LOCK = new Object();
 
     static final class PublishResult {
         final boolean success;
@@ -91,6 +94,12 @@ final class AureaDiagnosticsPublisher {
     }
 
     PublishResult publish(AureaDiagnosticsProbe.Snapshot snapshot) {
+        synchronized (PUBLISH_LOCK) {
+            return publishLocked(snapshot);
+        }
+    }
+
+    private PublishResult publishLocked(AureaDiagnosticsProbe.Snapshot snapshot) {
         if (snapshot == null) {
             return new PublishResult(false, false, false, "Rapporto assente");
         }
@@ -126,11 +135,22 @@ final class AureaDiagnosticsPublisher {
                 ""
             ));
             long lastAlertTime = monitor.getLong(KEY_LAST_ALERT_TIME, 0L);
+            int fingerprintVersion = monitor.getInt(KEY_FINGERPRINT_VERSION, 1);
             boolean notificationSent = false;
             String delivery = "Home Assistant aggiornato · nessuna nuova email";
 
             if (!"ok".equals(status)) {
                 boolean newOrChanged = !fingerprint.equals(lastFingerprint);
+                boolean migratingFingerprint = fingerprintVersion < FINGERPRINT_VERSION
+                    && lastAlertTime > 0L
+                    && status.equals(previousStatus);
+                if (migratingFingerprint) {
+                    newOrChanged = false;
+                    monitor.edit()
+                        .putString(KEY_LAST_ALERT_FINGERPRINT, fingerprint)
+                        .putInt(KEY_FINGERPRINT_VERSION, FINGERPRINT_VERSION)
+                        .apply();
+                }
                 boolean reminderDue = now - lastAlertTime >= SAME_ANOMALY_REMINDER_MS;
                 if (newOrChanged || reminderDue) {
                     sendAnomaly(haUrl, token, snapshot);
@@ -140,6 +160,7 @@ final class AureaDiagnosticsPublisher {
                         : "Promemoria anomalia inviato dopo 12 ore";
                     monitor.edit()
                         .putString(KEY_LAST_ALERT_FINGERPRINT, fingerprint)
+                        .putInt(KEY_FINGERPRINT_VERSION, FINGERPRINT_VERSION)
                         .putLong(KEY_LAST_ALERT_TIME, now)
                         .apply();
                 } else {
@@ -396,8 +417,7 @@ final class AureaDiagnosticsPublisher {
             if (check.status != AureaDiagnosticsProbe.Status.ERROR
                     && check.status != AureaDiagnosticsProbe.Status.WARNING) continue;
             source.append(check.status).append('|')
-                .append(check.title).append('|')
-                .append(check.detail).append('\n');
+                .append(check.title).append('\n');
         }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(

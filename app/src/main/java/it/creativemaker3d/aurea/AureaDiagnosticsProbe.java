@@ -364,9 +364,10 @@ final class AureaDiagnosticsProbe {
         AureaDiagnosticsLog diagnosticsLog = new AureaDiagnosticsLog(context);
         checks.add(new Check(
             "Registro tecnico",
-            diagnosticsLog.errorCount() > 0 ? Status.WARNING : Status.OK,
+            Status.INFO,
             "Eventi recenti: " + diagnosticsLog.count()
-                + " · errori: " + diagnosticsLog.errorCount() + "."
+                + " · errori storici: " + diagnosticsLog.errorCount()
+                + ". Il registro è informativo e non rappresenta da solo un guasto attuale."
         ));
     }
 
