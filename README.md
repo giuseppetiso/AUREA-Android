@@ -21,6 +21,14 @@ ogni 30 minuti, anche quando la schermata Diagnostics non è aperta. Pubblica:
   sanificato;
 - `sensor.aurea_tablet_heartbeat`, con l'ultimo controllo riuscito.
 
+AUREA pubblica inoltre la telemetria tecnica necessaria alle automazioni del
+tablet, senza immagini, audio o testo delle conversazioni:
+
+- `sensor.aurea_tablet_system`: rete, volume, luminosità, spazio e uptime;
+- `sensor.aurea_tablet_battery`: percentuale, ricarica, sorgente e temperatura;
+- `binary_sensor.aurea_tablet_screen`: stato dello schermo;
+- `sensor.aurea_tablet_active_profile`: profilo locale verificato.
+
 Le anomalie nuove o cambiate vengono affidate a
 `script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
 email configurato in Home Assistant. La stessa anomalia non viene ripetuta

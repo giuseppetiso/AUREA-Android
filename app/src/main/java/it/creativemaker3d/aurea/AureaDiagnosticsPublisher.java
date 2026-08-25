@@ -27,6 +27,10 @@ import java.util.Locale;
 final class AureaDiagnosticsPublisher {
     static final String DIAGNOSTICS_ENTITY = "sensor.aurea_tablet_diagnostics";
     static final String HEARTBEAT_ENTITY = "sensor.aurea_tablet_heartbeat";
+    static final String SYSTEM_ENTITY = "sensor.aurea_tablet_system";
+    static final String BATTERY_ENTITY = "sensor.aurea_tablet_battery";
+    static final String SCREEN_ENTITY = "binary_sensor.aurea_tablet_screen";
+    static final String PROFILE_ENTITY = "sensor.aurea_tablet_active_profile";
 
     private static final String APP_PREFS = "aurea";
     private static final String KEY_HA_URL = "ha_url";
@@ -126,8 +130,13 @@ final class AureaDiagnosticsPublisher {
         );
 
         try {
+            AureaTabletTelemetry.Snapshot tablet = AureaTabletTelemetry.capture(context);
             postState(haUrl, token, DIAGNOSTICS_ENTITY, diagnosticsState(snapshot, status));
             postState(haUrl, token, HEARTBEAT_ENTITY, heartbeatState(snapshot, status));
+            postState(haUrl, token, SYSTEM_ENTITY, systemState(tablet));
+            postState(haUrl, token, BATTERY_ENTITY, batteryState(tablet));
+            postState(haUrl, token, SCREEN_ENTITY, screenState(tablet));
+            postState(haUrl, token, PROFILE_ENTITY, profileState(tablet));
 
             String previousStatus = clean(monitor.getString(KEY_PREVIOUS_STATUS, ""));
             String lastFingerprint = clean(monitor.getString(
@@ -274,6 +283,80 @@ final class AureaDiagnosticsPublisher {
 
         JSONObject payload = new JSONObject();
         payload.put("state", isoTime(snapshot.time));
+        payload.put("attributes", attributes);
+        return payload;
+    }
+
+    private JSONObject systemState(AureaTabletTelemetry.Snapshot tablet) throws Exception {
+        JSONObject attributes = new JSONObject();
+        attributes.put("friendly_name", "AUREA Tablet System");
+        attributes.put("icon", "mdi:tablet-dashboard");
+        attributes.put("network_type", tablet.networkType);
+        attributes.put("app_foreground", tablet.appForeground);
+        attributes.put("screen_interactive", tablet.screenInteractive);
+        attributes.put("screen_brightness", tablet.screenBrightness);
+        attributes.put("media_volume_percent", tablet.mediaVolumePercent);
+        attributes.put("microphone_permission", tablet.microphoneAllowed);
+        attributes.put("camera_permission", tablet.cameraAllowed);
+        attributes.put("free_storage_mb", tablet.freeStorageMb);
+        attributes.put("uptime_minutes", tablet.uptimeMinutes);
+        attributes.put("installed_version", BuildConfig.VERSION_NAME
+            + " (" + BuildConfig.VERSION_CODE + ")");
+        attributes.put("last_update", isoTime(tablet.time));
+
+        JSONObject payload = new JSONObject();
+        payload.put("state", tablet.networkConnected ? "online" : "offline");
+        payload.put("attributes", attributes);
+        return payload;
+    }
+
+    private JSONObject batteryState(AureaTabletTelemetry.Snapshot tablet) throws Exception {
+        JSONObject attributes = new JSONObject();
+        attributes.put("friendly_name", "AUREA Tablet Battery");
+        attributes.put("icon", tablet.charging ? "mdi:battery-charging" : "mdi:battery");
+        attributes.put("device_class", "battery");
+        attributes.put("state_class", "measurement");
+        attributes.put("unit_of_measurement", "%");
+        attributes.put("charging", tablet.charging);
+        attributes.put("power_source", tablet.powerSource);
+        if (tablet.temperatureC > 0f) {
+            attributes.put("temperature_c", Math.round(tablet.temperatureC * 10f) / 10f);
+        }
+        attributes.put("last_update", isoTime(tablet.time));
+
+        JSONObject payload = new JSONObject();
+        payload.put("state", tablet.batteryPercent < 0 ? "unknown" : tablet.batteryPercent);
+        payload.put("attributes", attributes);
+        return payload;
+    }
+
+    private JSONObject screenState(AureaTabletTelemetry.Snapshot tablet) throws Exception {
+        JSONObject attributes = new JSONObject();
+        attributes.put("friendly_name", "AUREA Tablet Screen");
+        attributes.put("icon", tablet.screenInteractive
+            ? "mdi:tablet-dashboard" : "mdi:tablet-off");
+        attributes.put("brightness", tablet.screenBrightness);
+        attributes.put("app_foreground", tablet.appForeground);
+        attributes.put("last_update", isoTime(tablet.time));
+
+        JSONObject payload = new JSONObject();
+        payload.put("state", tablet.screenInteractive ? "on" : "off");
+        payload.put("attributes", attributes);
+        return payload;
+    }
+
+    private JSONObject profileState(AureaTabletTelemetry.Snapshot tablet) throws Exception {
+        JSONObject attributes = new JSONObject();
+        attributes.put("friendly_name", "AUREA Tablet Active Profile");
+        attributes.put("icon", "mdi:account-circle");
+        attributes.put("recognition", tablet.activeProfile.isEmpty()
+            ? "nessun profilo verificato" : "profilo locale verificato");
+        attributes.put("privacy", "nessuna immagine o firma biometrica pubblicata");
+        attributes.put("last_update", isoTime(tablet.time));
+
+        JSONObject payload = new JSONObject();
+        payload.put("state", tablet.activeProfile.isEmpty()
+            ? "nessuno" : tablet.activeProfile);
         payload.put("attributes", attributes);
         return payload;
     }
