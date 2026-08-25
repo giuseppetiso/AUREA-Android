@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.speech.SpeechRecognizer;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
@@ -118,6 +119,7 @@ public final class DashboardActivity extends MainActivity {
     private AureaBrainClient brainClient;
     private AureaInsightsObserver insightsObserver;
     private AureaDiagnosticsLog diagnosticsLog;
+    private AureaPresenceController presenceController;
     private boolean forwardingIdentityResult;
     private boolean followUpRequested;
     private boolean followUpSawSpeech;
@@ -128,6 +130,7 @@ public final class DashboardActivity extends MainActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         diagnosticsLog = new AureaDiagnosticsLog(this);
+        presenceController = new AureaPresenceController(this, this);
         refreshBrainConnection();
         startToolsIntegration();
     }
@@ -138,6 +141,7 @@ public final class DashboardActivity extends MainActivity {
         refreshBrainConnection();
         startToolsIntegration();
         startInsightsObservation();
+        if (presenceController != null) presenceController.start();
     }
 
     @Override
@@ -145,6 +149,7 @@ public final class DashboardActivity extends MainActivity {
         cancelFollowUp();
         stopInsightsObservation();
         integrationHandler.removeCallbacks(integrationTask);
+        if (presenceController != null) presenceController.stop();
         super.onPause();
     }
 
@@ -157,7 +162,20 @@ public final class DashboardActivity extends MainActivity {
         insightsHandler.removeCallbacksAndMessages(null);
         brainIo.shutdownNow();
         insightsIo.shutdownNow();
+        if (presenceController != null) {
+            presenceController.destroy();
+            presenceController = null;
+        }
         super.onDestroy();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event != null && event.getActionMasked() == MotionEvent.ACTION_DOWN
+                && presenceController != null) {
+            presenceController.userActivity();
+        }
+        return super.dispatchTouchEvent(event);
     }
 
     @Override
