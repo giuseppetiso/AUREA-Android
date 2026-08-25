@@ -41,6 +41,8 @@ final class AureaPresenceController {
     private static final long DIM_AFTER_MS = 50_000L;
     private static final long WATCHDOG_MS = 1000L;
     private static final long THERMAL_CHECK_MS = 60_000L;
+    private static final long CAMERA_STALL_MS = 20_000L;
+    private static final long CAMERA_RETRY_MS = 10_000L;
     private static final float PAUSE_TEMPERATURE_C = 45f;
     private static final float RESUME_TEMPERATURE_C = 42f;
     private static final float DIM_BRIGHTNESS = 0.08f;
@@ -63,6 +65,7 @@ final class AureaPresenceController {
     private ImageAnalysis analysis;
     private boolean running;
     private boolean cameraActive;
+    private boolean cameraBinding;
     private boolean thermalPaused;
     private boolean present;
     private boolean dimmed;
@@ -73,6 +76,8 @@ final class AureaPresenceController {
     private int candidateIdentityMatches;
     private float currentIdentityConfidence;
     private long lastAnalyzedAt;
+    private volatile long lastFrameAt;
+    private long nextCameraRetryAt;
     private long lastSeenAt;
     private long lastRecognizedAt;
     private long lastInteractionAt;
@@ -93,6 +98,21 @@ final class AureaPresenceController {
             if (now >= nextThermalCheckAt) {
                 nextThermalCheckAt = now + THERMAL_CHECK_MS;
                 applyThermalGuard();
+            }
+            if (!thermalPaused && isEnabled(activity)) {
+                if (cameraActive && now - lastFrameAt >= CAMERA_STALL_MS) {
+                    log.info(
+                        "AUREA Presence",
+                        "Flusso fotocamera fermo; riavvio automatico"
+                    );
+                    unbindCamera();
+                    nextCameraRetryAt = now + CAMERA_RETRY_MS;
+                    bindCamera();
+                } else if (!cameraActive && !cameraBinding
+                        && now >= nextCameraRetryAt) {
+                    nextCameraRetryAt = now + CAMERA_RETRY_MS;
+                    bindCamera();
+                }
             }
             setDimmed(!present && now - lastInteractionAt >= DIM_AFTER_MS);
             main.postDelayed(this, WATCHDOG_MS);
@@ -155,6 +175,8 @@ final class AureaPresenceController {
         candidateIdentityMatches = 0;
         currentIdentityConfidence = 0f;
         lastInteractionAt = System.currentTimeMillis();
+        lastFrameAt = lastInteractionAt;
+        nextCameraRetryAt = lastInteractionAt;
         nextThermalCheckAt = 0L;
         normalBrightness = activity.getWindow().getAttributes().screenBrightness;
         main.removeCallbacks(watchdog);
@@ -194,11 +216,13 @@ final class AureaPresenceController {
     }
 
     private void bindCamera() {
-        if (!running || destroyed || thermalPaused || cameraActive
+        if (!running || destroyed || thermalPaused || cameraActive || cameraBinding
                 || !isEnabled(activity)) return;
+        cameraBinding = true;
         ListenableFuture<ProcessCameraProvider> future =
             ProcessCameraProvider.getInstance(activity);
         future.addListener(() -> {
+            cameraBinding = false;
             if (!running || destroyed || thermalPaused) return;
             try {
                 cameraProvider = future.get();
@@ -213,10 +237,13 @@ final class AureaPresenceController {
                     analysis
                 );
                 cameraActive = true;
+                lastFrameAt = System.currentTimeMillis();
+                nextCameraRetryAt = lastFrameAt + CAMERA_RETRY_MS;
                 publisher.publish(present, true, false, lastSeenAt);
                 publishIdentity();
             } catch (Exception error) {
                 cameraActive = false;
+                nextCameraRetryAt = System.currentTimeMillis() + CAMERA_RETRY_MS;
                 publisher.publish(false, false, thermalPaused, lastSeenAt);
                 publishIdentity();
                 log.warning(
@@ -240,6 +267,7 @@ final class AureaPresenceController {
 
     private void analyzeFrame(@NonNull ImageProxy proxy) {
         long now = System.currentTimeMillis();
+        lastFrameAt = now;
         if (!running || thermalPaused || now - lastAnalyzedAt < ANALYSIS_INTERVAL_MS
                 || !processing.compareAndSet(false, true)) {
             proxy.close();

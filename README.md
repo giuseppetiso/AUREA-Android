@@ -49,6 +49,11 @@ Il sensore è destinato alla personalizzazione e non autorizza portoni, allarmi,
 pagamenti o altre azioni sensibili. Il riconoscimento può essere disattivato
 separatamente da Strumenti AUREA.
 
+Se il vecchio modello del volto non permette più di aprire Gestione persone,
+Giuseppe può usare il recupero tramite la propria voce già registrata e, dopo
+la conferma, acquisire un nuovo volto. La fotocamera passiva dispone inoltre di
+un controllo automatico che riavvia il flusso se non arrivano più fotogrammi.
+
 Le anomalie nuove o cambiate vengono affidate a
 `script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
 email configurato in Home Assistant. La stessa anomalia non viene ripetuta
