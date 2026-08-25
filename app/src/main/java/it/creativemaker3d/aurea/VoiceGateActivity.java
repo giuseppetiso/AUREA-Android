@@ -49,6 +49,7 @@ public final class VoiceGateActivity extends Activity {
     private Button primaryButton;
     private Button resetButton;
     private Button continueButton;
+    private Button homeAssistantRecoveryButton;
 
     private VoiceProfileStore profileStore;
     private PersonPreferencesStore preferencesStore;
@@ -171,6 +172,12 @@ public final class VoiceGateActivity extends Activity {
         continueButton.setOnClickListener(v -> openMainActivity(personName));
         root.addView(continueButton, buttonParams());
 
+        homeAssistantRecoveryButton = new Button(this);
+        homeAssistantRecoveryButton.setText("Recupera tramite Home Assistant");
+        homeAssistantRecoveryButton.setOnClickListener(v -> openHomeAssistantRecovery());
+        homeAssistantRecoveryButton.setVisibility(View.GONE);
+        root.addView(homeAssistantRecoveryButton, buttonParams());
+
         TextView privacy = text(13, Color.rgb(150, 172, 190));
         privacy.setText(
             "L'audio non viene salvato. AUREA conserva soltanto una firma numerica locale."
@@ -229,6 +236,7 @@ public final class VoiceGateActivity extends Activity {
         primaryButton.setOnClickListener(v -> startCapture());
         resetButton.setVisibility(View.GONE);
         continueButton.setVisibility(View.VISIBLE);
+        homeAssistantRecoveryButton.setVisibility(View.GONE);
     }
 
     private void enterVerificationMode() {
@@ -246,12 +254,25 @@ public final class VoiceGateActivity extends Activity {
         primaryButton.setOnClickListener(v -> startCapture());
         resetButton.setVisibility(adminVerification ? View.GONE : View.VISIBLE);
         continueButton.setVisibility(View.VISIBLE);
+        homeAssistantRecoveryButton.setVisibility(
+            adminVerification ? View.VISIBLE : View.GONE
+        );
 
         main.postDelayed(() -> {
             if (!openingMain && !capturing.get() && !enrollmentMode) {
                 startCapture();
             }
         }, 900L);
+    }
+
+    private void openHomeAssistantRecovery() {
+        if (openingMain || !adminVerification
+                || !new AdminAccessStore(this).isAccessRequested()) return;
+        openingMain = true;
+        capturing.set(false);
+        Intent recovery = new Intent(this, AureaAdminRecoveryActivity.class);
+        startActivity(recovery);
+        finish();
     }
 
     private void startCapture() {
