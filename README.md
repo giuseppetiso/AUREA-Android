@@ -29,6 +29,15 @@ tablet, senza immagini, audio o testo delle conversazioni:
 - `binary_sensor.aurea_tablet_screen`: stato dello schermo;
 - `sensor.aurea_tablet_active_profile`: profilo locale verificato.
 
+## AUREA Presence
+
+Quando la dashboard è visibile, la fotocamera frontale rileva localmente una
+persona davanti al tablet a bassa frequenza. Non salva né pubblica fotogrammi.
+Lo stato è disponibile come `binary_sensor.aurea_tablet_person_in_front`.
+La luminosità viene ridotta dopo 50 secondi senza volto o interazione e torna
+subito normale al rilevamento o al tocco. Da 45 °C la fotocamera viene sospesa
+automaticamente e riparte quando il tablet torna a una temperatura sicura.
+
 Le anomalie nuove o cambiate vengono affidate a
 `script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
 email configurato in Home Assistant. La stessa anomalia non viene ripetuta

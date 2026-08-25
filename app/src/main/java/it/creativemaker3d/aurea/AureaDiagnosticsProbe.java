@@ -371,6 +371,15 @@ final class AureaDiagnosticsProbe {
                 + " · proposte: " + insights.suggestionCount() + "."
         ));
 
+        boolean presenceEnabled = AureaPresenceController.isEnabled(context);
+        checks.add(new Check(
+            "AUREA Presence",
+            Status.INFO,
+            "Rilevamento locale: " + (presenceEnabled ? "attivo" : "disattivato")
+                + " · " + AureaPresencePublisher.summary(context)
+                + " Nessuna immagine viene conservata."
+        ));
+
         int memories = new AureaLearningStore(context).count(person);
         int drafts = AureaRoutineDraftAccess.countForPerson(
             new AureaRoutineDraftStore(context),

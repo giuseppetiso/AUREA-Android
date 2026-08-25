@@ -1,7 +1,6 @@
 package it.creativemaker3d.aurea;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -33,6 +32,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.ComponentActivity;
+
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -47,7 +48,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class MainActivity extends Activity implements RecognitionListener {
+public class MainActivity extends ComponentActivity implements RecognitionListener {
     private static final int AUDIO_PERMISSION = 41;
 
     private static final String PREFS = "aurea";

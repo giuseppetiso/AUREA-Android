@@ -201,6 +201,34 @@ public final class UserToolsActivity extends Activity {
         diagnosticsCard.addView(diagnostics, fullWidthWithTop(dp(6)));
         root.addView(diagnosticsCard, fullWidthWithBottom(dp(14)));
 
+        boolean presenceEnabled = AureaPresenceController.isEnabled(this);
+        LinearLayout presenceCard = card();
+        presenceCard.addView(text("AUREA Presence 1.0", 23, Color.WHITE), fullWidth());
+        TextView presenceDescription = text(
+            "Rileva localmente una persona davanti al tablet, riduce la luminosità quando "
+                + "non serve e si sospende automaticamente in caso di temperatura elevata. "
+                + "Nessuna immagine viene salvata o inviata.",
+            15,
+            Color.rgb(190, 210, 225)
+        );
+        presenceDescription.setPadding(0, dp(6), 0, dp(12));
+        presenceCard.addView(presenceDescription, fullWidth());
+        Button presence = button(presenceEnabled
+            ? "Disattiva rilevamento presenza"
+            : "Attiva rilevamento presenza");
+        presence.setOnClickListener(view -> {
+            boolean enabled = !AureaPresenceController.isEnabled(this);
+            AureaPresenceController.setEnabled(this, enabled);
+            Toast.makeText(
+                this,
+                enabled ? "AUREA Presence attiva" : "AUREA Presence disattivata",
+                Toast.LENGTH_LONG
+            ).show();
+            recreate();
+        });
+        presenceCard.addView(presence, fullWidthWithTop(dp(6)));
+        root.addView(presenceCard, fullWidthWithBottom(dp(14)));
+
         LinearLayout actionsCard = card();
         TextView actionsTitle = text("Azioni rapide", 23, Color.WHITE);
         actionsCard.addView(actionsTitle, fullWidth());
