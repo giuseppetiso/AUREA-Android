@@ -34,7 +34,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Centro diagnostico locale e in sola lettura di AUREA. */
+/** Centro diagnostico AUREA con monitor automatico e consegna sanificata. */
 public final class AureaDiagnosticsActivity extends Activity
         implements RecognitionListener, TextToSpeech.OnInitListener {
     private static final int AUDIO_PERMISSION_REQUEST = 901;
@@ -46,6 +46,7 @@ public final class AureaDiagnosticsActivity extends Activity
     private String currentPerson;
     private TextView headline;
     private TextView summary;
+    private TextView monitorStatus;
     private LinearLayout checksContainer;
     private LinearLayout eventsContainer;
     private Button runButton;
@@ -89,7 +90,7 @@ public final class AureaDiagnosticsActivity extends Activity
         root.setBackgroundColor(Color.rgb(2, 7, 13));
         scroll.addView(root, fullWidth());
 
-        TextView title = text("AUREA Diagnostics 1.0", 29, Color.WHITE);
+        TextView title = text("AUREA Diagnostics 2.0", 29, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         root.addView(title, fullWidth());
 
@@ -114,15 +115,31 @@ public final class AureaDiagnosticsActivity extends Activity
         summary.setGravity(Gravity.CENTER);
         summary.setPadding(0, dp(7), 0, dp(8));
         stateCard.addView(summary, fullWidth());
-        runButton = button("Esegui nuovamente la diagnosi completa");
+        runButton = button("Controlla e comunica ora");
         runButton.setOnClickListener(view -> runDiagnostics());
         stateCard.addView(runButton, fullWidthWithTop(dp(5)));
         root.addView(stateCard, fullWidthWithBottom(dp(14)));
 
+        LinearLayout monitorCard = card();
+        monitorCard.addView(text("Monitor continuo Home Assistant + email", 22, Color.WHITE), fullWidth());
+        monitorCard.addView(help(
+            "AUREA aggiorna Home Assistant ogni 30 minuti. Le email partono soltanto per "
+                + "una nuova anomalia, una variazione, il promemoria dopo 12 ore, il ripristino "
+                + "e il riepilogo giornaliero."
+        ), fullWidth());
+        monitorStatus = text(
+            AureaDiagnosticsPublisher.monitorSummary(this),
+            15,
+            Color.rgb(124, 220, 255)
+        );
+        monitorCard.addView(monitorStatus, fullWidth());
+        root.addView(monitorCard, fullWidthWithBottom(dp(14)));
+
         LinearLayout checksCard = card();
         checksCard.addView(text("Controlli automatici", 22, Color.WHITE), fullWidth());
         checksCard.addView(help(
-            "Le richieste verso Home Assistant sono esclusivamente GET e non modificano entità."
+            "La sonda legge soltanto. Il monitor pubblica esclusivamente i due sensori "
+                + "diagnostici AUREA e richiama i canali di notifica già autorizzati."
         ), fullWidth());
         checksContainer = vertical();
         checksCard.addView(checksContainer, fullWidth());
@@ -168,7 +185,8 @@ public final class AureaDiagnosticsActivity extends Activity
         LinearLayout reportCard = card();
         reportCard.addView(text("Rapporto diagnostico", 22, Color.WHITE), fullWidth());
         reportCard.addView(help(
-            "Il rapporto è copiabile senza esporre credenziali o dati biometrici."
+            "Il rapporto viene comunicato automaticamente senza esporre credenziali o dati "
+                + "biometrici; resta anche consultabile e copiabile sul tablet."
         ), fullWidth());
         LinearLayout reportActions = horizontal();
         Button showReport = button("Mostra rapporto");
@@ -196,12 +214,24 @@ public final class AureaDiagnosticsActivity extends Activity
 
         io.execute(() -> {
             AureaDiagnosticsProbe.Snapshot result = new AureaDiagnosticsProbe(this).run();
+            AureaDiagnosticsPublisher.PublishResult delivery =
+                new AureaDiagnosticsPublisher(this).publish(result);
             runOnUiThread(() -> {
                 snapshot = result;
                 renderSnapshot(result);
                 refreshEvents();
+                if (monitorStatus != null) {
+                    monitorStatus.setText(AureaDiagnosticsPublisher.monitorSummary(this));
+                }
                 runButton.setEnabled(true);
-                runButton.setText("Esegui nuovamente la diagnosi completa");
+                runButton.setText("Controlla e comunica ora");
+                Toast.makeText(
+                    this,
+                    delivery.success
+                        ? delivery.message
+                        : "Diagnosi completata; invio non riuscito: " + delivery.message,
+                    Toast.LENGTH_LONG
+                ).show();
             });
         });
     }
