@@ -53,6 +53,10 @@ Se il vecchio modello del volto non permette più di aprire Gestione persone,
 Giuseppe può usare il recupero tramite la propria voce già registrata e, dopo
 la conferma, acquisire un nuovo volto. La fotocamera passiva dispone inoltre di
 un controllo automatico che riavvia il flusso se non arrivano più fotogrammi.
+Se anche la firma vocale non coincide più, un secondo recupero genera un codice
+temporaneo visibile soltanto nelle notifiche dell'Home Assistant configurato.
+Il codice resta esclusivamente in memoria, scade dopo cinque minuti, consente
+al massimo cinque tentativi e viene invalidato dopo l'uso.
 
 Le anomalie nuove o cambiate vengono affidate a
 `script.aurea_registra_anomalia`, che conserva il rapporto e usa il canale
