@@ -79,6 +79,7 @@ public final class FaceGateActivity extends ComponentActivity {
     private Button primaryButton;
     private Button addPersonButton;
     private Button continueButton;
+    private Button voiceRecoveryButton;
 
     private ProcessCameraProvider cameraProvider;
     private FaceDetector faceDetector;
@@ -223,6 +224,12 @@ public final class FaceGateActivity extends ComponentActivity {
         continueButton.setOnClickListener(v -> openMainActivity(null));
         controls.addView(continueButton, buttonParams());
 
+        voiceRecoveryButton = new Button(this);
+        voiceRecoveryButton.setText("Recupera con la voce di Giuseppe");
+        voiceRecoveryButton.setOnClickListener(v -> openAdminVoiceRecovery());
+        voiceRecoveryButton.setVisibility(View.GONE);
+        controls.addView(voiceRecoveryButton, buttonParams());
+
         TextView privacy = new TextView(this);
         privacy.setText(
             "Le immagini non vengono salvate. AUREA conserva soltanto una firma numerica locale."
@@ -279,6 +286,7 @@ public final class FaceGateActivity extends ComponentActivity {
                 ? "Annulla e torna ai profili"
                 : "Continua senza riconoscimento"
         );
+        voiceRecoveryButton.setVisibility(View.GONE);
     }
 
     private void beginEnrollment() {
@@ -318,14 +326,42 @@ public final class FaceGateActivity extends ComponentActivity {
         primaryButton.setVisibility(View.GONE);
         addPersonButton.setVisibility(View.VISIBLE);
         continueButton.setVisibility(View.VISIBLE);
+        boolean adminRecovery = new AdminAccessStore(this).isAccessRequested()
+            && new VoiceProfileStore(this).hasProfile(AdminAccessStore.ADMIN_NAME);
+        voiceRecoveryButton.setVisibility(adminRecovery ? View.VISIBLE : View.GONE);
 
         main.postDelayed(() -> {
             if (!openingMain && recognitionActive && candidateMatches < REQUIRED_MATCHES) {
                 statusView.setText(
-                    "Non ti ho ancora riconosciuto. Guarda dritto oppure continua senza riconoscimento."
+                    adminRecovery
+                        ? "Volto non riconosciuto. Puoi confermare con la voce registrata."
+                        : "Non ti ho ancora riconosciuto. Guarda dritto oppure continua senza riconoscimento."
                 );
             }
         }, 8000L);
+    }
+
+    private void openAdminVoiceRecovery() {
+        if (openingMain || !new AdminAccessStore(this).isAccessRequested()) return;
+        String administrator = AdminAccessStore.ADMIN_NAME;
+        if (!new VoiceProfileStore(this).hasProfile(administrator)) {
+            Toast.makeText(
+                this,
+                "Profilo vocale di Giuseppe non disponibile",
+                Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+        openingMain = true;
+        enrollmentActive = false;
+        recognitionActive = false;
+        if (cameraProvider != null) cameraProvider.unbindAll();
+
+        Intent voice = new Intent(this, VoiceGateActivity.class);
+        voice.putExtra("aurea_recognized_person", administrator);
+        voice.putExtra("aurea_identity_overlay", true);
+        startActivity(voice);
+        finish();
     }
 
     private void startCamera() {
