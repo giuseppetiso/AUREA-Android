@@ -43,10 +43,18 @@ final class UpdateManager {
     void check(boolean showIfCurrent) {
         io.execute(() -> {
             try {
-                HttpURLConnection connection = (HttpURLConnection) new URL(VERSION_URL).openConnection();
+                // The signed channel keeps the same URL while the aurea-latest tag moves.
+                // A unique query prevents an intermediary CDN from returning the previous
+                // release metadata for a few minutes after publication.
+                URL versionUrl = new URL(VERSION_URL + "?check=" + System.currentTimeMillis());
+                HttpURLConnection connection = (HttpURLConnection) versionUrl.openConnection();
                 connection.setConnectTimeout(7000);
                 connection.setReadTimeout(7000);
                 connection.setUseCaches(false);
+                connection.setDefaultUseCaches(false);
+                connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+                connection.setRequestProperty("Pragma", "no-cache");
+                connection.setRequestProperty("Accept", "application/json");
                 int code = connection.getResponseCode();
                 if (code != 200) throw new IllegalStateException("HTTP " + code);
 
