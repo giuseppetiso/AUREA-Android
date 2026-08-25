@@ -27,9 +27,24 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 final class UpdateManager {
-    private static final String VERSION_URL =
+    private static final String VERSION_API_URL =
+        "https://api.github.com/repos/giuseppetiso/AUREA-Android/"
+            + "contents/version.json?ref=main";
+    private static final String VERSION_FALLBACK_URL =
         "https://raw.githubusercontent.com/giuseppetiso/AUREA-Android/"
             + "aurea-latest/version.json";
+
+    private static final class Channel {
+        final int code;
+        final String name;
+        final String apkUrl;
+
+        Channel(int code, String name, String apkUrl) {
+            this.code = code;
+            this.name = name;
+            this.apkUrl = apkUrl;
+        }
+    }
 
     private final Activity activity;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -43,40 +58,20 @@ final class UpdateManager {
     void check(boolean showIfCurrent) {
         io.execute(() -> {
             try {
-                // The signed channel keeps the same URL while the aurea-latest tag moves.
-                // A unique query prevents an intermediary CDN from returning the previous
-                // release metadata for a few minutes after publication.
-                URL versionUrl = new URL(VERSION_URL + "?check=" + System.currentTimeMillis());
-                HttpURLConnection connection = (HttpURLConnection) versionUrl.openConnection();
-                connection.setConnectTimeout(7000);
-                connection.setReadTimeout(7000);
-                connection.setUseCaches(false);
-                connection.setDefaultUseCaches(false);
-                connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
-                connection.setRequestProperty("Pragma", "no-cache");
-                connection.setRequestProperty("Accept", "application/json");
-                int code = connection.getResponseCode();
-                if (code != 200) throw new IllegalStateException("HTTP " + code);
-
-                StringBuilder body = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    connection.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) body.append(line);
-                }
-
-                JSONObject json = new JSONObject(body.toString());
-                int availableCode = json.getInt("versionCode");
-                String availableName = json.getString("versionName");
-                String apkUrl = json.getString("apkUrl");
-                int installedCode = activity.getPackageManager()
-                    .getPackageInfo(activity.getPackageName(), 0).versionCode;
+                Channel channel = readChannel();
+                int installedCode = BuildConfig.VERSION_CODE;
+                String installedName = BuildConfig.VERSION_NAME;
 
                 activity.runOnUiThread(() -> {
-                    if (availableCode > installedCode) {
-                        showUpdate(availableName, apkUrl);
+                    if (channel.code > installedCode) {
+                        showUpdate(channel.name, channel.apkUrl);
                     } else if (showIfCurrent) {
-                        Toast.makeText(activity, "AUREA è già aggiornata", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(
+                            activity,
+                            "Installata " + installedName + " (" + installedCode + ")"
+                                + " · canale " + channel.name + " (" + channel.code + ")",
+                            Toast.LENGTH_LONG
+                        ).show();
                     }
                 });
             } catch (Exception error) {
@@ -91,6 +86,65 @@ final class UpdateManager {
                 }
             }
         });
+    }
+
+    private Channel readChannel() throws Exception {
+        Exception primaryError;
+        try {
+            return readChannelUrl(
+                VERSION_API_URL + "&check=" + System.currentTimeMillis(),
+                "application/vnd.github.raw+json"
+            );
+        } catch (Exception error) {
+            primaryError = error;
+        }
+
+        try {
+            return readChannelUrl(
+                VERSION_FALLBACK_URL + "?check=" + System.currentTimeMillis(),
+                "application/json"
+            );
+        } catch (Exception fallbackError) {
+            fallbackError.addSuppressed(primaryError);
+            throw fallbackError;
+        }
+    }
+
+    private Channel readChannelUrl(String address, String accept) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        try {
+            connection.setConnectTimeout(7000);
+            connection.setReadTimeout(7000);
+            connection.setUseCaches(false);
+            connection.setDefaultUseCaches(false);
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0");
+            connection.setRequestProperty("Pragma", "no-cache");
+            connection.setRequestProperty("Accept", accept);
+            connection.setRequestProperty(
+                "User-Agent",
+                "AUREA-Android/" + BuildConfig.VERSION_NAME
+            );
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                throw new IllegalStateException("HTTP " + responseCode);
+            }
+
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    connection.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) body.append(line);
+            }
+
+            JSONObject json = new JSONObject(body.toString());
+            return new Channel(
+                json.getInt("versionCode"),
+                json.getString("versionName"),
+                json.getString("apkUrl")
+            );
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private void showUpdate(String versionName, String apkUrl) {
