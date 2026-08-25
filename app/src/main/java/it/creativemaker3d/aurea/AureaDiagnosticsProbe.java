@@ -176,7 +176,10 @@ final class AureaDiagnosticsProbe {
         addAgentCheck(checks, haUrl, token);
 
         try {
-            HttpResult version = get(SIGNED_VERSION_URL, "");
+            HttpResult version = get(
+                SIGNED_VERSION_URL + "?check=" + System.currentTimeMillis(),
+                ""
+            );
             if (version.code == 200) {
                 JSONObject json = new JSONObject(version.body);
                 int availableCode = json.optInt("versionCode", 0);
@@ -253,6 +256,26 @@ final class AureaDiagnosticsProbe {
             "Spazio locale AUREA",
             freeMb < 250L ? Status.WARNING : Status.OK,
             "Spazio disponibile nell'archivio applicazione: circa " + freeMb + " MB."
+        ));
+
+        AureaTabletTelemetry.Snapshot tablet = AureaTabletTelemetry.capture(context);
+        boolean lowBattery = tablet.batteryPercent >= 0
+            && tablet.batteryPercent < 15
+            && !tablet.charging;
+        boolean hot = tablet.temperatureC >= 45f;
+        checks.add(new Check(
+            "Alimentazione e salute tablet",
+            lowBattery || hot ? Status.WARNING : Status.OK,
+            "Batteria: "
+                + (tablet.batteryPercent < 0 ? "non rilevata" : tablet.batteryPercent + "%")
+                + " · alimentazione: " + tablet.powerSource
+                + " · temperatura: "
+                + (tablet.temperatureC <= 0f
+                    ? "non rilevata"
+                    : String.format(Locale.ITALIAN, "%.1f °C", tablet.temperatureC))
+                + " · rete: "
+                + (tablet.networkConnected ? tablet.networkType : "non connessa")
+                + "."
         ));
     }
 
