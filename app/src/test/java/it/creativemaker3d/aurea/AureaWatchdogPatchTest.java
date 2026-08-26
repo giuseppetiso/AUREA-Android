@@ -87,6 +87,6 @@ public final class AureaWatchdogPatchTest {
         if (!Files.exists(path)) {
             path = Path.of("src/main/res/raw/aurea_watchdog_tablet_v2.json");
         }
-        return new JSONObject(Files.readString(path, StandardCharsets.UTF_8));
+        return new JSONObject(new String(Files.readAllBytes(path), StandardCharsets.UTF_8));
     }
 }
