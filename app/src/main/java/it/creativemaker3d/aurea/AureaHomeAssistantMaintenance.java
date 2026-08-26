@@ -26,11 +26,18 @@ final class AureaHomeAssistantMaintenance {
     private static final String KEY_PRESENCE_BACKUP = "presence_audit_backup_v1";
     private static final int PRESENCE_PATCH_VERSION = 1;
 
+    private static final String KEY_WATCHDOG_PATCH_VERSION = "tablet_watchdog_patch_version";
+    private static final String KEY_WATCHDOG_BACKUP = "tablet_watchdog_backup_v2";
+    private static final int WATCHDOG_PATCH_VERSION = 1;
+
     private static final String AUTOMATION_ID = "1787567247522";
     private static final String AUTOMATION_ALIAS = "AUREA - Audit presenza casa";
     private static final String NOISY_TRIGGER_ID = "tracker_giuseppe_discordanti";
     private static final String CONFIG_PATH =
         "/api/config/automation/config/" + AUTOMATION_ID;
+    private static final String WATCHDOG_AUTOMATION_ID = "1787567496756";
+    private static final String WATCHDOG_CONFIG_PATH =
+        "/api/config/automation/config/" + WATCHDOG_AUTOMATION_ID;
     private static final String RELOAD_PATH = "/api/services/automation/reload";
 
     static final class Result {
@@ -151,6 +158,107 @@ final class AureaHomeAssistantMaintenance {
         }
     }
 
+    Result applyTabletWatchdogPatch() {
+        SharedPreferences maintenance = context.getSharedPreferences(
+            MAINTENANCE_PREFS,
+            Context.MODE_PRIVATE
+        );
+        if (maintenance.getInt(KEY_WATCHDOG_PATCH_VERSION, 0)
+                >= WATCHDOG_PATCH_VERSION) {
+            return new Result(true, false, "Watchdog tablet AUREA già aggiornato");
+        }
+
+        SharedPreferences app = context.getSharedPreferences(APP_PREFS, Context.MODE_PRIVATE);
+        String haUrl = trimSlash(app.getString(KEY_HA_URL, DEFAULT_HA_URL));
+        String token = clean(app.getString(KEY_HA_TOKEN, ""));
+        if (haUrl.isEmpty() || token.isEmpty()) {
+            return failure("Home Assistant non configurato");
+        }
+
+        try {
+            HttpResult current = request("GET", haUrl + WATCHDOG_CONFIG_PATH, token, null);
+            if (!current.successful()) {
+                return failure("Watchdog tablet non leggibile: HTTP " + current.code);
+            }
+            JSONObject config = new JSONObject(current.body);
+            if (!AureaWatchdogPatch.AUTOMATION_ALIAS.equals(
+                    clean(config.optString("alias", "")))) {
+                return failure("Watchdog tablet non riconosciuto: nessuna modifica eseguita");
+            }
+
+            if (AureaWatchdogPatch.isTarget(config)) {
+                markWatchdogCompleted(maintenance);
+                return new Result(true, false, "Watchdog tablet AUREA già aggiornato");
+            }
+            if (!AureaWatchdogPatch.isLegacy(config)) {
+                return failure("Watchdog tablet modificato o incoerente: nessuna modifica eseguita");
+            }
+
+            JSONObject template = readRawJson(R.raw.aurea_watchdog_tablet_v2);
+            JSONObject updated = AureaWatchdogPatch.apply(config, template);
+            if (!AureaWatchdogPatch.isTarget(updated)) {
+                return failure("Nuovo watchdog tablet non verificabile");
+            }
+
+            String backup = config.toString();
+            maintenance.edit().putString(KEY_WATCHDOG_BACKUP, backup).apply();
+            HttpResult saved = request(
+                "POST",
+                haUrl + WATCHDOG_CONFIG_PATH,
+                token,
+                updated.toString()
+            );
+            if (!saved.successful()) {
+                return failure("Salvataggio watchdog tablet rifiutato: HTTP " + saved.code);
+            }
+
+            HttpResult verified = request("GET", haUrl + WATCHDOG_CONFIG_PATH, token, null);
+            boolean valid = verified.successful();
+            if (valid) {
+                valid = AureaWatchdogPatch.isTarget(new JSONObject(verified.body));
+            }
+            if (!valid) {
+                boolean restored = restoreAt(
+                    haUrl,
+                    token,
+                    WATCHDOG_CONFIG_PATH,
+                    backup
+                );
+                return failure(restored
+                    ? "Verifica watchdog fallita; configurazione precedente ripristinata"
+                    : "Verifica watchdog fallita e ripristino non confermato");
+            }
+
+            try {
+                reload(haUrl, token);
+            } catch (Exception reloadError) {
+                boolean restored = restoreAt(
+                    haUrl,
+                    token,
+                    WATCHDOG_CONFIG_PATH,
+                    backup
+                );
+                return failure(restored
+                    ? "Ricaricamento watchdog fallito; configurazione precedente ripristinata"
+                    : "Ricaricamento watchdog fallito e ripristino non confermato");
+            }
+
+            markWatchdogCompleted(maintenance);
+            log.info(
+                "Manutenzione Home Assistant",
+                "Watchdog tablet aggiornato: AUREA primaria, P90 fallback, heartbeat 75 minuti"
+            );
+            return new Result(true, true, "Watchdog tablet aggiornato e verificato");
+        } catch (Exception error) {
+            log.error(
+                "Manutenzione Home Assistant",
+                "Aggiornamento watchdog tablet non riuscito",
+                error
+            );
+            return failure(safeMessage(error));
+        }
+    }
+
     private boolean containsTrigger(JSONObject config) {
         JSONArray triggers = array(config, "triggers", "trigger");
         if (triggers == null) return false;
@@ -243,9 +351,34 @@ final class AureaHomeAssistantMaintenance {
         }
     }
 
+    private boolean restoreAt(
+            String haUrl,
+            String token,
+            String configPath,
+            String backup) {
+        try {
+            HttpResult restored = request("POST", haUrl + configPath, token, backup);
+            if (!restored.successful()) return false;
+            HttpResult reloaded = request("POST", haUrl + RELOAD_PATH, token, "{}");
+            return reloaded.successful();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private JSONObject readRawJson(int resourceId) throws Exception {
+        return new JSONObject(readAll(context.getResources().openRawResource(resourceId)));
+    }
+
     private void markCompleted(SharedPreferences maintenance) {
         maintenance.edit()
             .putInt(KEY_PRESENCE_PATCH_VERSION, PRESENCE_PATCH_VERSION)
+            .apply();
+    }
+
+    private void markWatchdogCompleted(SharedPreferences maintenance) {
+        maintenance.edit()
+            .putInt(KEY_WATCHDOG_PATCH_VERSION, WATCHDOG_PATCH_VERSION)
             .apply();
     }
 

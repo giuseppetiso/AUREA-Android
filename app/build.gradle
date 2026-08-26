@@ -18,6 +18,7 @@ dependencies {
     implementation "net.java.dev.jna:jna:5.18.1@aar"
     implementation "com.alphacephei:vosk-android:0.3.75@aar"
     testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
 }
 
 def aureaFaceModel = file("src/main/assets/face_recognition_sface_2021dec_int8.onnx")
@@ -93,8 +94,8 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 64
-        versionName "0.15.0"
+        versionCode 65
+        versionName "0.15.1"
     }
 
     buildFeatures {

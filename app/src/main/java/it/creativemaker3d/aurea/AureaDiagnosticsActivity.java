@@ -213,7 +213,10 @@ public final class AureaDiagnosticsActivity extends Activity
         summary.setText("Controllo Home Assistant, Gemini, audio, profili e moduli locali.");
 
         io.execute(() -> {
-            new AureaHomeAssistantMaintenance(this).applyPresenceAuditPatch();
+            AureaHomeAssistantMaintenance maintenance =
+                new AureaHomeAssistantMaintenance(this);
+            maintenance.applyPresenceAuditPatch();
+            maintenance.applyTabletWatchdogPatch();
             AureaDiagnosticsProbe.Snapshot result = new AureaDiagnosticsProbe(this).run();
             AureaDiagnosticsPublisher.PublishResult delivery =
                 new AureaDiagnosticsPublisher(this).publish(result);
