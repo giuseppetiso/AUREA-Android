@@ -1,1 +1,2 @@
-/app/src/main/assets/mobilenet_v3_large.tflite
+/app/src/main/assets/face_recognition_sface_2021dec_int8.onnx
+/app/src/main/assets/licenses/SFACE_LICENSE.txt

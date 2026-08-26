@@ -7,14 +7,19 @@ import android.graphics.Matrix;
 import android.graphics.PointF;
 import android.graphics.Rect;
 
-import com.google.mediapipe.framework.image.BitmapImageBuilder;
-import com.google.mediapipe.framework.image.MPImage;
-import com.google.mediapipe.tasks.components.containers.Embedding;
-import com.google.mediapipe.tasks.core.BaseOptions;
-import com.google.mediapipe.tasks.vision.imageembedder.ImageEmbedder;
 import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceLandmark;
 
+import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.objdetect.FaceRecognizerSF;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,8 +29,8 @@ import java.util.List;
  * embedding neurale e firma strutturale. Non conserva alcun fotogramma.
  */
 final class AureaFaceRecognitionEngine implements AutoCloseable {
-    private static final String MODEL = "mobilenet_v3_large.tflite";
-    private static final int EMBEDDING_IMAGE_SIZE = 224;
+    static final String ENGINE_ID = "sface_2021dec_int8";
+    private static final String MODEL = "face_recognition_sface_2021dec_int8.onnx";
     private static final int TEXTURE_IMAGE_SIZE = 64;
     private static final int PIXEL_GRID = 16;
     private static final int LBP_BLOCKS = 4;
@@ -98,20 +103,21 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
         }
     }
 
-    private final ImageEmbedder embedder;
+    private final FaceRecognizerSF recognizer;
 
     AureaFaceRecognitionEngine(Context context) {
-        BaseOptions base = BaseOptions.builder()
-            .setModelAssetPath(MODEL)
-            .build();
-        ImageEmbedder.ImageEmbedderOptions options =
-            ImageEmbedder.ImageEmbedderOptions.builder()
-                .setBaseOptions(base)
-                .build();
-        embedder = ImageEmbedder.createFromOptions(
-            context.getApplicationContext(),
-            options
-        );
+        try {
+            if (!OpenCVLoader.initLocal()) {
+                throw new IllegalStateException("OpenCV non inizializzato");
+            }
+            File model = materializeModel(context.getApplicationContext());
+            recognizer = FaceRecognizerSF.create(model.getAbsolutePath(), "");
+        } catch (Exception error) {
+            throw new IllegalStateException(
+                "Motore facciale SFace non inizializzato",
+                error
+            );
+        }
     }
 
     Capture capture(Bitmap frame, Face face) {
@@ -136,7 +142,6 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
         }
 
         Bitmap crop = null;
-        Bitmap embedded = null;
         Bitmap textureBitmap = null;
         try {
             crop = alignedCrop(frame, face);
@@ -157,20 +162,12 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
                 return Capture.rejected("Resta fermo per un istante.");
             }
 
-            embedded = Bitmap.createScaledBitmap(
-                crop,
-                EMBEDDING_IMAGE_SIZE,
-                EMBEDDING_IMAGE_SIZE,
-                true
-            );
-            MPImage mpImage = new BitmapImageBuilder(embedded).build();
-            Embedding result = embedder.embed(mpImage)
-                .embeddingResult().embeddings().get(0);
-            float[] neural = result.floatEmbedding();
+            float[] neural = faceEmbedding(frame, face);
             if (neural == null || neural.length < 128) {
-                return Capture.rejected("Motore facciale non pronto.");
+                return Capture.rejected(
+                    "Occhi, naso e bocca devono essere ben visibili."
+                );
             }
-            neural = neural.clone();
             normalize(neural);
 
             textureBitmap = Bitmap.createScaledBitmap(
@@ -191,8 +188,7 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
         } catch (Exception ignored) {
             return Capture.rejected("Riconoscimento momentaneamente non disponibile.");
         } finally {
-            recycle(textureBitmap, crop, embedded);
-            recycle(embedded, crop, null);
+            recycle(textureBitmap, crop, null);
             recycle(crop, null, null);
         }
     }
@@ -223,7 +219,7 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
     }
 
     static float calibratedThreshold(List<Sample> samples) {
-        if (samples == null || samples.size() < 6) return 0.86f;
+        if (samples == null || samples.size() < 6) return 0.48f;
         ArrayList<Float> genuine = new ArrayList<>();
         for (int index = 0; index < samples.size(); index++) {
             ArrayList<AureaFaceProfileStore.Template> others = new ArrayList<>();
@@ -239,7 +235,7 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
         }
         Collections.sort(genuine);
         float lowerQuartile = genuine.get(Math.max(0, genuine.size() / 4));
-        return clamp(lowerQuartile - 0.045f, 0.76f, 0.91f);
+        return clamp(lowerQuartile - 0.065f, 0.44f, 0.68f);
     }
 
     static boolean addsDiversity(List<Sample> samples, Sample candidate) {
@@ -249,7 +245,7 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
         for (Sample existing : samples) {
             closest = Math.max(closest, combinedSimilarity(candidate, existing));
         }
-        return closest < 0.992f || samples.size() < 3;
+        return closest < 0.985f || samples.size() < 3;
     }
 
     private static float profileScore(
@@ -274,6 +270,100 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
     private static float combinedSimilarity(Sample first, Sample second) {
         return cosine(first.embedding, second.embedding) * 0.76f
             + cosine(first.texture, second.texture) * 0.24f;
+    }
+
+    private float[] faceEmbedding(Bitmap frame, Face face) {
+        PointF rightEye = landmark(face, FaceLandmark.RIGHT_EYE);
+        PointF leftEye = landmark(face, FaceLandmark.LEFT_EYE);
+        PointF nose = landmark(face, FaceLandmark.NOSE_BASE);
+        PointF mouthRight = landmark(face, FaceLandmark.MOUTH_RIGHT);
+        PointF mouthLeft = landmark(face, FaceLandmark.MOUTH_LEFT);
+        if (rightEye == null || leftEye == null || nose == null
+                || mouthRight == null || mouthLeft == null) {
+            return null;
+        }
+
+        Rect bounds = face.getBoundingBox();
+        float[] descriptor = {
+            bounds.left,
+            bounds.top,
+            bounds.width(),
+            bounds.height(),
+            rightEye.x,
+            rightEye.y,
+            leftEye.x,
+            leftEye.y,
+            nose.x,
+            nose.y,
+            mouthRight.x,
+            mouthRight.y,
+            mouthLeft.x,
+            mouthLeft.y,
+            1f
+        };
+
+        Mat rgba = new Mat();
+        Mat bgr = new Mat();
+        Mat faceBox = new Mat(1, 15, CvType.CV_32FC1);
+        Mat aligned = new Mat();
+        Mat feature = new Mat();
+        try {
+            Utils.bitmapToMat(frame, rgba);
+            Imgproc.cvtColor(rgba, bgr, Imgproc.COLOR_RGBA2BGR);
+            faceBox.put(0, 0, descriptor);
+            recognizer.alignCrop(bgr, faceBox, aligned);
+            if (aligned.empty()) return null;
+            recognizer.feature(aligned, feature);
+            if (feature.empty()) return null;
+            int size = (int) (feature.total() * feature.channels());
+            if (size < 128) return null;
+            float[] embedding = new float[size];
+            feature.get(0, 0, embedding);
+            return embedding;
+        } finally {
+            feature.release();
+            aligned.release();
+            faceBox.release();
+            bgr.release();
+            rgba.release();
+        }
+    }
+
+    private static PointF landmark(Face face, int type) {
+        FaceLandmark landmark = face.getLandmark(type);
+        return landmark == null ? null : landmark.getPosition();
+    }
+
+    private static File materializeModel(Context context) throws Exception {
+        File directory = new File(context.getNoBackupFilesDir(), "aurea_models");
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw new IllegalStateException("cartella modelli non disponibile");
+        }
+        File model = new File(directory, MODEL);
+        if (model.isFile() && model.length() > 8_000_000L) return model;
+
+        File temporary = new File(directory, MODEL + ".tmp");
+        if (temporary.exists() && !temporary.delete()) {
+            throw new IllegalStateException("modello temporaneo bloccato");
+        }
+        try (InputStream input = context.getAssets().open(MODEL);
+             FileOutputStream output = new FileOutputStream(temporary)) {
+            byte[] buffer = new byte[16_384];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) output.write(buffer, 0, read);
+            }
+            output.getFD().sync();
+        }
+        if (model.exists() && !model.delete()) {
+            temporary.delete();
+            throw new IllegalStateException("vecchio modello bloccato");
+        }
+        if (!temporary.renameTo(model)) {
+            temporary.delete();
+            throw new IllegalStateException("installazione modello non riuscita");
+        }
+        return model;
     }
 
     private static Bitmap alignedCrop(Bitmap source, Face face) {
@@ -493,7 +583,7 @@ final class AureaFaceRecognitionEngine implements AutoCloseable {
 
     @Override
     public void close() {
-        embedder.close();
+        // FaceRecognizerSF non espone close(); l'istanza vive quanto il controller.
     }
 
     private static final class Quality {

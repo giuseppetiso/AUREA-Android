@@ -14,21 +14,30 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:${cameraxVersion}"
     implementation "androidx.camera:camera-view:${cameraxVersion}"
     implementation "com.google.mlkit:face-detection:16.1.7"
-    implementation "com.google.mediapipe:tasks-vision:1.0.0"
+    implementation "org.opencv:opencv:4.14.0"
     implementation "net.java.dev.jna:jna:5.18.1@aar"
     implementation "com.alphacephei:vosk-android:0.3.75@aar"
     testImplementation "junit:junit:4.13.2"
 }
 
-def aureaFaceModel = file("src/main/assets/mobilenet_v3_large.tflite")
+def aureaFaceModel = file("src/main/assets/face_recognition_sface_2021dec_int8.onnx")
+def aureaFaceLicense = file("src/main/assets/licenses/SFACE_LICENSE.txt")
 def aureaFaceModelUrl =
-    "https://storage.googleapis.com/mediapipe-models/image_embedder/" +
-    "mobilenet_v3_large/float32/1/mobilenet_v3_large.tflite"
+    "https://github.com/opencv/opencv_zoo/raw/" +
+    "47534e27c9851bb1128ccc0102f1145e27f23f98/models/" +
+    "face_recognition_sface/face_recognition_sface_2021dec_int8.onnx"
 def aureaFaceModelSha256 =
-    "11af3c560dfeed7737cb4c03c23bf52a8403020784192d4dea0b74862a12828d"
+    "2b0e941e6f16cc048c20aee0c8e31f569118f65d702914540f7bfdc14048d78a"
+def aureaFaceLicenseUrl =
+    "https://raw.githubusercontent.com/opencv/opencv_zoo/" +
+    "47534e27c9851bb1128ccc0102f1145e27f23f98/models/" +
+    "face_recognition_sface/LICENSE"
+def aureaFaceLicenseSha256 =
+    "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
 
 tasks.register("downloadAureaFaceModel") {
     outputs.file(aureaFaceModel)
+    outputs.file(aureaFaceLicense)
     outputs.upToDateWhen { false }
     doLast {
         aureaFaceModel.parentFile.mkdirs()
@@ -49,6 +58,25 @@ tasks.register("downloadAureaFaceModel") {
         if (actual != aureaFaceModelSha256) {
             aureaFaceModel.delete()
             throw new GradleException("Modello facciale AUREA non valido")
+        }
+        aureaFaceLicense.parentFile.mkdirs()
+        if (!aureaFaceLicense.exists()) {
+            new URL(aureaFaceLicenseUrl).withInputStream { input ->
+                aureaFaceLicense.withOutputStream { output -> output << input }
+            }
+        }
+        digest = java.security.MessageDigest.getInstance("SHA-256")
+        aureaFaceLicense.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int read
+            while ((read = input.read(buffer)) > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        actual = digest.digest().encodeHex().toString()
+        if (actual != aureaFaceLicenseSha256) {
+            aureaFaceLicense.delete()
+            throw new GradleException("Licenza modello facciale AUREA non valida")
         }
     }
 }

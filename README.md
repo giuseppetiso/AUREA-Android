@@ -41,8 +41,9 @@ automaticamente e riparte quando il tablet torna a una temperatura sicura.
 ## AUREA Identity passiva
 
 Quando AUREA Presence rileva un volto sufficientemente vicino e frontale,
-allinea occhi e volto, verifica luce e nitidezza e confronta localmente un
-embedding neurale più una firma strutturale con dodici campioni diversificati
+allinea occhi, naso e bocca, verifica luce e nitidezza e confronta localmente
+un embedding SFace specifico per il riconoscimento facciale più una firma
+strutturale con dodici campioni diversificati
 per profilo. Servono più corrispondenze consecutive; i casi dubbi restano
 `sconosciuto`. Home
 Assistant riceve soltanto il risultato tramite

@@ -70,7 +70,10 @@ final class AureaFaceProfileStore {
                 if (stored == null) continue;
 
                 ArrayList<Template> templates = new ArrayList<>();
-                if (stored.optInt("schema", 1) >= SCHEMA_V2) {
+                if (stored.optInt("schema", 1) >= SCHEMA_V2
+                        && AureaFaceRecognitionEngine.ENGINE_ID.equals(
+                            stored.optString("engine", "")
+                        )) {
                     JSONArray values = stored.optJSONArray("templates");
                     if (values != null) {
                         for (int item = 0; item < values.length(); item++) {
@@ -111,6 +114,7 @@ final class AureaFaceProfileStore {
             JSONObject previous = root.optJSONObject(clean(name));
             JSONObject stored = new JSONObject();
             stored.put("schema", SCHEMA_V2);
+            stored.put("engine", AureaFaceRecognitionEngine.ENGINE_ID);
             stored.put("threshold", threshold);
             stored.put("calibrated_at", System.currentTimeMillis());
             if (previous != null && previous.has("vector")) {
