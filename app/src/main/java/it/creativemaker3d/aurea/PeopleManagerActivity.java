@@ -37,6 +37,7 @@ public final class PeopleManagerActivity extends Activity {
 
     private LinearLayout profilesContainer;
     private VoiceProfileStore voiceStore;
+    private AureaFaceProfileStore faceStore;
     private IdentitySessionStore identityStore;
     private AdminAccessStore adminStore;
     private PersonPreferencesStore preferencesStore;
@@ -56,6 +57,7 @@ public final class PeopleManagerActivity extends Activity {
 
         adminStore.touch();
         voiceStore = new VoiceProfileStore(this);
+        faceStore = new AureaFaceProfileStore(this);
         identityStore = new IdentitySessionStore(this);
         preferencesStore = new PersonPreferencesStore(this);
         learningStore = new AureaLearningStore(this);
@@ -197,9 +199,13 @@ public final class PeopleManagerActivity extends Activity {
         card.addView(person, fullWidth());
 
         boolean hasVoice = voiceStore.hasProfile(name);
-        String status = hasVoice
-            ? "Volto registrato · Voce registrata"
-            : "Volto registrato · Voce da registrare";
+        boolean faceV2 = !faceStore.needsCalibration(name);
+        boolean voiceV2 = hasVoice && !voiceStore.needsCalibration(name);
+        String status = (faceV2 ? "Volto v2 pronto" : "Volto da calibrare")
+            + " · "
+            + (voiceV2
+                ? "Voce v2 pronta"
+                : (hasVoice ? "Voce da calibrare" : "Voce da registrare"));
         if (trusted) {
             status += " · Profilo attivo";
         }
@@ -222,11 +228,11 @@ public final class PeopleManagerActivity extends Activity {
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
 
-        Button face = button("Nuovo volto");
+        Button face = button(faceV2 ? "Nuovo volto" : "Calibra volto");
         face.setOnClickListener(view -> startFaceEnrollment(name));
         actions.addView(face, weightedButton());
 
-        Button voice = button(hasVoice ? "Nuova voce" : "Registra voce");
+        Button voice = button(voiceV2 ? "Nuova voce" : "Calibra voce");
         voice.setOnClickListener(view -> startVoiceEnrollment(name));
         actions.addView(voice, weightedButtonWithStart(dp(8)));
 
