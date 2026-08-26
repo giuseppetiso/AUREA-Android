@@ -29,6 +29,14 @@ tablet, senza immagini, audio o testo delle conversazioni:
 - `binary_sensor.aurea_tablet_screen`: stato dello schermo;
 - `sensor.aurea_tablet_active_profile`: profilo riconosciuto in tempo reale.
 
+Dalla versione 0.15.1 AUREA aggiorna in modo controllato anche il watchdog del
+tablet già presente in Home Assistant: usa sistema, heartbeat e batteria AUREA
+come fonti primarie, conserva la telemetria P90 come fallback e considera
+scaduto un heartbeat soltanto dopo 75 minuti. Prima della modifica salva la
+configurazione precedente, verifica l'automazione risultante e la ripristina se
+salvataggio o ricaricamento non vengono confermati. Configurazioni sconosciute
+o modificate manualmente non vengono sovrascritte.
+
 ## AUREA Presence
 
 Quando la dashboard è visibile, la fotocamera frontale rileva localmente una

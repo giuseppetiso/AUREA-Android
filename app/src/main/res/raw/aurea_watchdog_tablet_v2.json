@@ -1,0 +1,200 @@
+{
+  "alias": "AUREA - Watchdog tablet",
+  "description": "Controlla il tablet P90 che ospita AUREA usando sistema, heartbeat e batteria AUREA come fonti primarie. La telemetria P90 resta disponibile soltanto come fallback. Soglia heartbeat: 75 minuti.",
+  "triggers": [
+    {
+      "trigger": "numeric_state",
+      "id": "aurea_batteria_critica",
+      "entity_id": "sensor.aurea_tablet_battery",
+      "below": 20
+    },
+    {
+      "trigger": "template",
+      "id": "aurea_alimentazione_assente",
+      "value_template": "{{ states('sensor.aurea_tablet_battery') not in ['unknown', 'unavailable', 'none', ''] and state_attr('sensor.aurea_tablet_battery', 'charging') == false and states('sensor.aurea_tablet_battery') | float(100) < 50 }}",
+      "for": "00:10:00"
+    },
+    {
+      "trigger": "template",
+      "id": "aurea_heartbeat_scaduto",
+      "value_template": "{% set heartbeat = states('sensor.aurea_tablet_heartbeat') %} {{ heartbeat not in ['unknown', 'unavailable', 'none', ''] and (as_timestamp(now()) - as_timestamp(heartbeat, 0)) > 4500 }}",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "aurea_sistema_offline",
+      "entity_id": "sensor.aurea_tablet_system",
+      "to": "offline",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "aurea_core_unavailable",
+      "entity_id": [
+        "sensor.aurea_tablet_system",
+        "sensor.aurea_tablet_heartbeat"
+      ],
+      "to": "unavailable",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "aurea_core_unknown",
+      "entity_id": [
+        "sensor.aurea_tablet_system",
+        "sensor.aurea_tablet_heartbeat"
+      ],
+      "to": "unknown",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "aurea_batteria_unavailable",
+      "entity_id": "sensor.aurea_tablet_battery",
+      "to": "unavailable",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "aurea_batteria_unknown",
+      "entity_id": "sensor.aurea_tablet_battery",
+      "to": "unknown",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "fallback_tracker_unavailable",
+      "entity_id": "device_tracker.console",
+      "to": "unavailable",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "state",
+      "id": "fallback_tracker_unknown",
+      "entity_id": "device_tracker.console",
+      "to": "unknown",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "template",
+      "id": "fallback_batteria_critica",
+      "value_template": "{% set heartbeat = states('sensor.aurea_tablet_heartbeat') %} {% set primary_bad = states('sensor.aurea_tablet_system') in ['unknown', 'unavailable', 'offline'] or states('sensor.aurea_tablet_battery') in ['unknown', 'unavailable'] or heartbeat in ['unknown', 'unavailable', 'none', ''] or (as_timestamp(now()) - as_timestamp(heartbeat, 0)) > 4500 %} {{ primary_bad and states('sensor.p90_battery_level') | float(100) < 20 }}",
+      "for": "00:05:00"
+    },
+    {
+      "trigger": "template",
+      "id": "fallback_alimentazione_assente",
+      "value_template": "{% set heartbeat = states('sensor.aurea_tablet_heartbeat') %} {% set primary_bad = states('sensor.aurea_tablet_system') in ['unknown', 'unavailable', 'offline'] or states('sensor.aurea_tablet_battery') in ['unknown', 'unavailable'] or heartbeat in ['unknown', 'unavailable', 'none', ''] or (as_timestamp(now()) - as_timestamp(heartbeat, 0)) > 4500 %} {{ primary_bad and states('sensor.p90_charger_type') == 'none' and states('sensor.p90_battery_state') == 'discharging' and states('sensor.p90_battery_level') | float(100) < 50 }}",
+      "for": "00:10:00"
+    }
+  ],
+  "conditions": [],
+  "actions": [
+    {
+      "choose": [
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ trigger.id | default('') in ['aurea_batteria_critica', 'fallback_batteria_critica'] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.aurea_registra_anomalia",
+              "data": {
+                "titolo": "Batteria tablet AUREA critica",
+                "origine": "AUREA - Watchdog tablet",
+                "gravita": "critica",
+                "entita": "{{ 'sensor.aurea_tablet_battery' if trigger.id | default('') == 'aurea_batteria_critica' else 'sensor.p90_battery_level' }}",
+                "dettagli": "Fonte={{ 'AUREA' if trigger.id | default('') == 'aurea_batteria_critica' else 'P90 fallback' }}. Batteria AUREA={{ states('sensor.aurea_tablet_battery') }}%, ricarica={{ state_attr('sensor.aurea_tablet_battery', 'charging') }}, sorgente={{ state_attr('sensor.aurea_tablet_battery', 'power_source') }}. Batteria P90={{ states('sensor.p90_battery_level') }}%, stato={{ states('sensor.p90_battery_state') }}, caricatore={{ states('sensor.p90_charger_type') }}."
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ trigger.id | default('') in ['aurea_alimentazione_assente', 'fallback_alimentazione_assente'] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.aurea_registra_anomalia",
+              "data": {
+                "titolo": "Alimentazione tablet AUREA assente",
+                "origine": "AUREA - Watchdog tablet",
+                "gravita": "attenzione",
+                "entita": "{{ 'sensor.aurea_tablet_battery' if trigger.id | default('') == 'aurea_alimentazione_assente' else 'sensor.p90_charger_type' }}",
+                "dettagli": "Fonte={{ 'AUREA' if trigger.id | default('') == 'aurea_alimentazione_assente' else 'P90 fallback' }}. Batteria AUREA={{ states('sensor.aurea_tablet_battery') }}%, ricarica={{ state_attr('sensor.aurea_tablet_battery', 'charging') }}, sorgente={{ state_attr('sensor.aurea_tablet_battery', 'power_source') }}. Batteria P90={{ states('sensor.p90_battery_level') }}%, stato={{ states('sensor.p90_battery_state') }}, caricatore={{ states('sensor.p90_charger_type') }}."
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ trigger.id | default('') in ['aurea_heartbeat_scaduto', 'aurea_sistema_offline', 'aurea_core_unavailable', 'aurea_core_unknown'] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.aurea_registra_anomalia",
+              "data": {
+                "titolo": "Tablet AUREA non disponibile",
+                "origine": "AUREA - Watchdog tablet",
+                "gravita": "critica",
+                "entita": "{{ trigger.entity_id | default('sensor.aurea_tablet_heartbeat') }}",
+                "dettagli": "Evento={{ trigger.id | default('sconosciuto') }}. Sistema={{ states('sensor.aurea_tablet_system') }}. Ultimo heartbeat={{ states('sensor.aurea_tablet_heartbeat') }}. Batteria={{ states('sensor.aurea_tablet_battery') }}%. Tracker P90={{ states('device_tracker.console') }}."
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{{ trigger.id | default('') in ['aurea_batteria_unavailable', 'aurea_batteria_unknown'] }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.aurea_registra_anomalia",
+              "data": {
+                "titolo": "Telemetria batteria AUREA non disponibile",
+                "origine": "AUREA - Watchdog tablet",
+                "gravita": "attenzione",
+                "entita": "sensor.aurea_tablet_battery",
+                "dettagli": "La batteria AUREA risulta {{ states('sensor.aurea_tablet_battery') }} da almeno 5 minuti. Sistema={{ states('sensor.aurea_tablet_system') }}. Heartbeat={{ states('sensor.aurea_tablet_heartbeat') }}. P90={{ states('sensor.p90_battery_level') }}%."
+              }
+            }
+          ]
+        },
+        {
+          "conditions": [
+            {
+              "condition": "template",
+              "value_template": "{% set heartbeat = states('sensor.aurea_tablet_heartbeat') %} {% set primary_bad = states('sensor.aurea_tablet_system') in ['unknown', 'unavailable', 'offline'] or states('sensor.aurea_tablet_battery') in ['unknown', 'unavailable'] or heartbeat in ['unknown', 'unavailable', 'none', ''] or (as_timestamp(now()) - as_timestamp(heartbeat, 0)) > 4500 %} {{ trigger.id | default('') in ['fallback_tracker_unavailable', 'fallback_tracker_unknown'] and primary_bad }}"
+            }
+          ],
+          "sequence": [
+            {
+              "action": "script.aurea_registra_anomalia",
+              "data": {
+                "titolo": "Tablet AUREA non raggiungibile",
+                "origine": "AUREA - Watchdog tablet",
+                "gravita": "critica",
+                "entita": "device_tracker.console",
+                "dettagli": "Sia la telemetria primaria AUREA sia il tracker P90 indicano un problema. Sistema={{ states('sensor.aurea_tablet_system') }}. Heartbeat={{ states('sensor.aurea_tablet_heartbeat') }}. Tracker={{ states('device_tracker.console') }}. Batteria AUREA={{ states('sensor.aurea_tablet_battery') }}%."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "mode": "queued",
+  "max": 10
+}
