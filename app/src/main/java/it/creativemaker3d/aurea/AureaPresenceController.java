@@ -36,7 +36,8 @@ final class AureaPresenceController {
     private static final String PREFS = "aurea_presence";
     private static final String KEY_ENABLED = "enabled";
     private static final String KEY_RECOGNITION_ENABLED = "recognition_enabled";
-    private static final long ANALYSIS_INTERVAL_MS = 1200L;
+    private static final long ACTIVE_ANALYSIS_INTERVAL_MS = 900L;
+    private static final long IDLE_ANALYSIS_INTERVAL_MS = 1600L;
     private static final long PRESENCE_HOLD_MS = 18_000L;
     private static final long DIM_AFTER_MS = 50_000L;
     private static final long WATCHDOG_MS = 1000L;
@@ -60,6 +61,7 @@ final class AureaPresenceController {
     private final AureaDiagnosticsLog log;
     private final FaceDetector detector;
     private final AureaPassiveFaceRecognizer recognizer;
+    private final AureaIdentityAutomation identityAutomation;
 
     private ProcessCameraProvider cameraProvider;
     private ImageAnalysis analysis;
@@ -94,6 +96,7 @@ final class AureaPresenceController {
                 clearIdentity();
                 publisher.publish(false, cameraActive, thermalPaused, lastSeenAt);
                 publishIdentity();
+                publishAutomation();
             }
             if (now >= nextThermalCheckAt) {
                 nextThermalCheckAt = now + THERMAL_CHECK_MS;
@@ -120,12 +123,23 @@ final class AureaPresenceController {
     };
 
     AureaPresenceController(Activity activity, LifecycleOwner lifecycleOwner) {
+        this(activity, lifecycleOwner, null);
+    }
+
+    AureaPresenceController(
+            Activity activity,
+            LifecycleOwner lifecycleOwner,
+            AureaIdentityAutomation.Listener identityListener) {
         this.activity = activity;
         this.lifecycleOwner = lifecycleOwner;
         this.publisher = new AureaPresencePublisher(activity);
         this.identityPublisher = new AureaIdentityPublisher(activity);
         this.log = new AureaDiagnosticsLog(activity);
         this.recognizer = new AureaPassiveFaceRecognizer(activity);
+        this.identityAutomation = new AureaIdentityAutomation(
+            activity,
+            identityListener
+        );
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
@@ -165,6 +179,7 @@ final class AureaPresenceController {
             currentIdentity = isRecognitionEnabled(activity)
                 ? AureaIdentityPublisher.NONE : AureaIdentityPublisher.DISABLED;
             publishIdentity();
+            publishAutomation();
             return;
         }
 
@@ -184,6 +199,7 @@ final class AureaPresenceController {
         main.post(watchdog);
 
         publishIdentity();
+        publishAutomation();
 
         bindCamera();
     }
@@ -199,6 +215,7 @@ final class AureaPresenceController {
         setDimmed(false);
         publisher.publish(false, false, thermalPaused, lastSeenAt);
         publishIdentity();
+        publishAutomation();
     }
 
     void userActivity() {
@@ -215,6 +232,7 @@ final class AureaPresenceController {
         cameraExecutor.shutdownNow();
         publisher.close();
         identityPublisher.close();
+        identityAutomation.close();
     }
 
     private void bindCamera() {
@@ -243,11 +261,13 @@ final class AureaPresenceController {
                 nextCameraRetryAt = lastFrameAt + CAMERA_RETRY_MS;
                 publisher.publish(present, true, false, lastSeenAt);
                 publishIdentity();
+                publishAutomation();
             } catch (Exception error) {
                 cameraActive = false;
                 nextCameraRetryAt = System.currentTimeMillis() + CAMERA_RETRY_MS;
                 publisher.publish(false, false, thermalPaused, lastSeenAt);
                 publishIdentity();
+                publishAutomation();
                 log.warning(
                     "AUREA Presence",
                     "Fotocamera passiva non disponibile: " + safeMessage(error)
@@ -270,7 +290,9 @@ final class AureaPresenceController {
     private void analyzeFrame(@NonNull ImageProxy proxy) {
         long now = System.currentTimeMillis();
         lastFrameAt = now;
-        if (!running || thermalPaused || now - lastAnalyzedAt < ANALYSIS_INTERVAL_MS
+        long analysisInterval = present
+            ? ACTIVE_ANALYSIS_INTERVAL_MS : IDLE_ANALYSIS_INTERVAL_MS;
+        if (!running || thermalPaused || now - lastAnalyzedAt < analysisInterval
                 || !processing.compareAndSet(false, true)) {
             proxy.close();
             return;
@@ -293,13 +315,23 @@ final class AureaPresenceController {
                 AureaPassiveFaceRecognizer.Match match = null;
                 boolean recognitionEnabled = isRecognitionEnabled(activity);
                 int profiles = recognizer.profileCount();
-                boolean evaluated = face != null && recognitionEnabled
+                boolean canEvaluate = face != null && recognitionEnabled
                     && (profiles == 0 || AureaPassiveFaceRecognizer.isUsableFace(face));
-                if (evaluated && profiles > 0) {
+                boolean evaluated = canEvaluate && profiles == 0;
+                if (canEvaluate && profiles > 0) {
                     match = recognizer.recognize(proxy, face);
+                    evaluated = match != null && match.evaluated;
+                    if (match != null && match.name.isEmpty()) {
+                        match = null;
+                    }
                 }
                 AureaPassiveFaceRecognizer.Match finalMatch = match;
-                main.post(() -> handleDetection(face != null, evaluated, finalMatch));
+                boolean finalEvaluated = evaluated;
+                main.post(() -> handleDetection(
+                    face != null,
+                    finalEvaluated,
+                    finalMatch
+                ));
             })
             .addOnFailureListener(cameraExecutor, error -> {
             })
@@ -327,6 +359,7 @@ final class AureaPresenceController {
         if (detectionStreak >= 2 && !present) {
             present = true;
             publisher.publish(true, cameraActive, thermalPaused, lastSeenAt);
+            publishAutomation();
         }
         if (identityEvaluated) processIdentity(match);
     }
@@ -369,6 +402,7 @@ final class AureaPresenceController {
             lastRecognizedAt = System.currentTimeMillis();
         }
         publishIdentity();
+        publishAutomation();
     }
 
     private void clearIdentity() {
@@ -388,6 +422,16 @@ final class AureaPresenceController {
             isRecognitionEnabled(activity),
             recognizer.profileCount(),
             lastRecognizedAt
+        );
+    }
+
+    private void publishAutomation() {
+        identityAutomation.onState(
+            currentIdentity,
+            currentIdentityConfidence,
+            present,
+            cameraActive,
+            isRecognitionEnabled(activity)
         );
     }
 
@@ -415,6 +459,7 @@ final class AureaPresenceController {
             unbindCamera();
             publisher.publish(false, false, true, lastSeenAt);
             publishIdentity();
+            publishAutomation();
             log.warning(
                 "AUREA Presence",
                 "Fotocamera sospesa dalla protezione termica"

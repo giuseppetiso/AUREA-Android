@@ -43,6 +43,7 @@ final class AureaBackupCodec {
     private static final String FACE_PREFS = "aurea_face_profiles";
     private static final String VOICE_PREFS = "aurea_voice_profiles";
     private static final String PERSON_PREFS = "aurea_person_preferences";
+    private static final String AUTOMATION_PREFS = AureaIdentityAutomation.PREFS_NAME;
     private static final String LEARNING_PREFS = AureaLearningStore.PREFS_NAME;
 
     private static final Set<String> SAFE_APP_KEYS = new HashSet<>(Arrays.asList(
@@ -78,6 +79,14 @@ final class AureaBackupCodec {
         preferences.put(
             LEARNING_PREFS,
             snapshot(context, LEARNING_PREFS, key -> true)
+        );
+        preferences.put(
+            AUTOMATION_PREFS,
+            snapshot(
+                context,
+                AUTOMATION_PREFS,
+                key -> AureaIdentityAutomation.KEY_PASSIVE_GREETINGS.equals(key)
+            )
         );
         preferences.put(
             APP_PREFS,
@@ -126,6 +135,11 @@ final class AureaBackupCodec {
             restoreReplacing(context, LEARNING_PREFS, learning);
         }
 
+        JSONObject automation = preferences.optJSONObject(AUTOMATION_PREFS);
+        if (automation != null) {
+            restoreReplacing(context, AUTOMATION_PREFS, automation);
+        }
+
         restoreSafeAppPreferences(
             context,
             requiredObject(preferences, APP_PREFS)
@@ -134,6 +148,7 @@ final class AureaBackupCodec {
         new AureaBrainStore(context).clearAllConversations();
         new IdentitySessionStore(context).clearTrust();
         new AdminAccessStore(context).revoke();
+        AureaIdentityAutomation.resetRuntime(context);
 
         int faces = countFaceProfiles(context);
         int voices = countVoiceProfiles(context);

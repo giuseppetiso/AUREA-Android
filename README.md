@@ -27,7 +27,7 @@ tablet, senza immagini, audio o testo delle conversazioni:
 - `sensor.aurea_tablet_system`: rete, volume, luminosità, spazio e uptime;
 - `sensor.aurea_tablet_battery`: percentuale, ricarica, sorgente e temperatura;
 - `binary_sensor.aurea_tablet_screen`: stato dello schermo;
-- `sensor.aurea_tablet_active_profile`: profilo locale verificato.
+- `sensor.aurea_tablet_active_profile`: profilo riconosciuto in tempo reale.
 
 ## AUREA Presence
 
@@ -51,6 +51,29 @@ Assistant riceve soltanto il risultato tramite
 Il sensore è destinato alla personalizzazione e non autorizza portoni, allarmi,
 pagamenti o altre azioni sensibili. Il riconoscimento può essere disattivato
 separatamente da Strumenti AUREA.
+
+## AUREA Identity Automation
+
+Il riconoscimento passivo alimenta una macchina a stati locale che distingue
+assenza, verifica in corso, profilo riconosciuto e sconosciuto confermato. Un
+profilo viene attivato soltanto dopo tre corrispondenze consecutive; uno
+sconosciuto richiede quattro conferme e, quando sostituisce una persona già
+riconosciuta, ne richiede otto. Le funzioni risultanti sono:
+
+- saluto personale configurato per il profilo, pronunciato soltanto al nuovo
+  ingresso e non più di una volta ogni due ore per la stessa persona;
+- `sensor.aurea_tablet_identity_automation`, con stato, conteggi ed eventi
+  sanificati;
+- `sensor.aurea_tablet_active_profile`, aggiornato in tempo reale dalla persona
+  effettivamente davanti al tablet;
+- `binary_sensor.aurea_tablet_unknown_person`, che comunica a Home Assistant
+  uno sconosciuto stabile senza inviare email automaticamente;
+- frequenza di analisi ridotta quando l'area è vuota e più rapida dopo la
+  presenza, mantenendo risveglio dello schermo e protezione termica.
+
+Nessuno di questi stati concede accesso amministrativo o autorizza azioni
+sensibili. Volto e voce restano necessari per la sessione verificata; immagini,
+audio e firme non compaiono nei sensori né nei rapporti.
 
 La verifica vocale v2 individua automaticamente inizio e fine della frase,
 scarta campioni troppo rumorosi, bassi o saturi e confronta quattro modelli
@@ -81,7 +104,7 @@ nessuna credenziale email viene memorizzata nell'app.
 La configurazione richiede un token Home Assistant dedicato ad AUREA. Non
 inserire token nel codice sorgente e non riutilizzare quello personale.
 
-## Limiti della versione 0.1
+## Limiti attuali
 
 - il riconoscimento dipende dal servizio vocale Android presente sul P90;
 - la risposta usa temporaneamente la sintesi vocale Android, non ancora Piper;
