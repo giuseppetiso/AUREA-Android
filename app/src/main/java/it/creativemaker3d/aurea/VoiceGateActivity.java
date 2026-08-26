@@ -591,6 +591,7 @@ public final class VoiceGateActivity extends Activity {
             main.postDelayed(() -> openMainActivity(personName), 350L);
             return;
         }
+        AureaIdentityAutomation.recordExternalGreeting(this, personName);
 
         main.postDelayed(() -> {
             if (!openingMain) {

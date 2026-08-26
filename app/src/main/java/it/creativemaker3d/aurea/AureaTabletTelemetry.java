@@ -130,7 +130,7 @@ final class AureaTabletTelemetry {
 
         File files = context.getFilesDir();
         long freeMb = files == null ? 0L : files.getUsableSpace() / (1024L * 1024L);
-        String profile = RegisteredUserAccess.currentPerson(context);
+        String profile = AureaIdentityAutomation.activeProfile(context);
 
         return new Snapshot(
             System.currentTimeMillis(),

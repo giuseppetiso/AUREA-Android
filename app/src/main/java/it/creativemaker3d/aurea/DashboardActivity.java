@@ -130,7 +130,23 @@ public final class DashboardActivity extends MainActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         diagnosticsLog = new AureaDiagnosticsLog(this);
-        presenceController = new AureaPresenceController(this, this);
+        presenceController = new AureaPresenceController(
+            this,
+            this,
+            (person, greeting) -> runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || greeting == null
+                        || greeting.trim().isEmpty()) {
+                    return;
+                }
+                cancelFollowUp();
+                if (!invokeMainSpeak(greeting)) {
+                    diagnosticsLog.warning(
+                        "AUREA Identity Automation",
+                        "Saluto passivo non riprodotto dalla dashboard"
+                    );
+                }
+            })
+        );
         refreshBrainConnection();
         startToolsIntegration();
     }

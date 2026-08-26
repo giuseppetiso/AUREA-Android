@@ -203,17 +203,26 @@ public final class UserToolsActivity extends Activity {
 
         boolean presenceEnabled = AureaPresenceController.isEnabled(this);
         boolean recognitionEnabled = AureaPresenceController.isRecognitionEnabled(this);
+        boolean passiveGreetings = AureaIdentityAutomation.isPassiveGreetingEnabled(this);
         LinearLayout presenceCard = card();
-        presenceCard.addView(text("AUREA Presence & Identity 1.1", 23, Color.WHITE), fullWidth());
+        presenceCard.addView(text("AUREA Identity Automation 2.0", 23, Color.WHITE), fullWidth());
         TextView presenceDescription = text(
             "Rileva localmente una persona davanti al tablet, riduce la luminosità quando "
-                + "non serve e, se autorizzato, confronta il volto con i profili locali. "
-                + "Persone dubbie restano sconosciute. Nessuna immagine viene salvata o inviata.",
+                + "non serve e confronta il volto con i profili locali. Saluta con antispam, "
+                + "aggiorna il profilo attivo e comunica gli sconosciuti confermati soltanto "
+                + "a Home Assistant. Nessuna immagine, audio o firma viene salvata o inviata.",
             15,
             Color.rgb(190, 210, 225)
         );
         presenceDescription.setPadding(0, dp(6), 0, dp(12));
         presenceCard.addView(presenceDescription, fullWidth());
+        TextView automationStatus = text(
+            AureaIdentityAutomation.summary(this),
+            14,
+            Color.rgb(124, 220, 255)
+        );
+        automationStatus.setPadding(0, 0, 0, dp(8));
+        presenceCard.addView(automationStatus, fullWidth());
         Button presence = button(presenceEnabled
             ? "Disattiva rilevamento presenza"
             : "Attiva rilevamento presenza");
@@ -246,6 +255,25 @@ public final class UserToolsActivity extends Activity {
             recreate();
         });
         presenceCard.addView(recognition, fullWidthWithTop(dp(8)));
+
+        Button greetings = button(passiveGreetings
+            ? "Disattiva saluti passivi intelligenti"
+            : "Attiva saluti passivi intelligenti");
+        greetings.setEnabled(presenceEnabled && recognitionEnabled);
+        greetings.setOnClickListener(view -> {
+            boolean enabled = !AureaIdentityAutomation
+                .isPassiveGreetingEnabled(this);
+            AureaIdentityAutomation.setPassiveGreetingEnabled(this, enabled);
+            Toast.makeText(
+                this,
+                enabled
+                    ? "Saluti passivi attivi con antispam di due ore"
+                    : "Saluti passivi disattivati",
+                Toast.LENGTH_LONG
+            ).show();
+            recreate();
+        });
+        presenceCard.addView(greetings, fullWidthWithTop(dp(8)));
         root.addView(presenceCard, fullWidthWithBottom(dp(14)));
 
         LinearLayout actionsCard = card();

@@ -333,7 +333,8 @@ final class AureaDiagnosticsProbe {
         }
 
         IdentitySessionStore identity = new IdentitySessionStore(context);
-        String trusted = clean(identity.trustedPerson());
+        String trusted = identity.isTrusted()
+            ? clean(identity.trustedPerson()) : "";
         Status status = names.isEmpty() || voicesCount == 0
             ? Status.WARNING
             : Status.OK;
@@ -342,7 +343,7 @@ final class AureaDiagnosticsProbe {
             status,
             "Volti registrati: " + names.size()
                 + " · voci registrate: " + voicesCount
-                + " · profilo attivo: "
+                + " · sessione verificata: "
                 + (trusted.isEmpty() ? "nessuno" : trusted) + "."
         ));
     }
@@ -392,6 +393,20 @@ final class AureaDiagnosticsProbe {
                 + " · " + AureaRecognitionDiagnostics.faceSummary(context)
                 + " · " + AureaIdentityPublisher.summary(context)
                 + " Il risultato non autorizza azioni sensibili."
+        ));
+
+        checks.add(new Check(
+            "AUREA Identity Automation",
+            AureaIdentityAutomation.hasPublishError(context)
+                ? Status.WARNING
+                : (identityEnabled ? Status.OK : Status.INFO),
+            AureaIdentityAutomation.summary(context)
+                + " Saluti passivi: "
+                + (AureaIdentityAutomation.isPassiveGreetingEnabled(context)
+                    ? "attivi con antispam di due ore"
+                    : "disattivati")
+                + ". Gli sconosciuti aggiornano Home Assistant senza email; "
+                + "nessun evento autorizza azioni sensibili."
         ));
 
         VoiceProfileStore voiceProfiles = new VoiceProfileStore(context);

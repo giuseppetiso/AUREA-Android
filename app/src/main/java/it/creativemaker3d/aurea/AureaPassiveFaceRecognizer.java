@@ -19,10 +19,20 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
     static final class Match {
         final String name;
         final float score;
+        final boolean evaluated;
 
         Match(String name, float score) {
+            this(name, score, true);
+        }
+
+        private Match(String name, float score, boolean evaluated) {
             this.name = clean(name);
             this.score = score;
+            this.evaluated = evaluated;
+        }
+
+        static Match notEvaluated() {
+            return new Match("", 0f, false);
         }
     }
 
@@ -68,7 +78,7 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
 
     Match recognize(ImageProxy proxy, Face face) {
         if (engine == null || proxy == null || face == null || profileCount() == 0) {
-            return null;
+            return Match.notEvaluated();
         }
         Bitmap source = null;
         Bitmap rotated = null;
@@ -76,7 +86,7 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
             source = grayscaleBitmap(proxy);
             rotated = rotateBitmap(source, proxy.getImageInfo().getRotationDegrees());
             AureaFaceRecognitionEngine.Capture capture = engine.capture(rotated, face);
-            if (!capture.accepted()) return null;
+            if (!capture.accepted()) return Match.notEvaluated();
             AureaFaceRecognitionEngine.ProfileScore result =
                 engine.bestProfile(capture.sample, profiles);
             boolean accepted = result.accepted(profileCount());
@@ -87,10 +97,10 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
                 accepted,
                 capture.sample
             );
-            if (!accepted) return null;
+            if (!accepted) return new Match("", result.score);
             return new Match(result.name, result.score);
         } catch (Exception ignored) {
-            return null;
+            return Match.notEvaluated();
         } finally {
             recycle(rotated);
             if (source != rotated) recycle(source);

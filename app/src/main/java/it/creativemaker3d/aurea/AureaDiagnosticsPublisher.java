@@ -346,11 +346,17 @@ final class AureaDiagnosticsPublisher {
     }
 
     private JSONObject profileState(AureaTabletTelemetry.Snapshot tablet) throws Exception {
+        String verifiedSession = RegisteredUserAccess.currentPerson(context);
         JSONObject attributes = new JSONObject();
         attributes.put("friendly_name", "AUREA Tablet Active Profile");
-        attributes.put("icon", "mdi:account-circle");
+        attributes.put("icon", tablet.activeProfile.isEmpty()
+            ? "mdi:account-off-outline" : "mdi:account-circle");
         attributes.put("recognition", tablet.activeProfile.isEmpty()
-            ? "nessun profilo verificato" : "profilo locale verificato");
+            ? "nessuna persona riconosciuta davanti al tablet"
+            : "profilo locale riconosciuto passivamente");
+        attributes.put("verified_session", verifiedSession.isEmpty()
+            ? "nessuna" : verifiedSession);
+        attributes.put("security_authorization", false);
         attributes.put("privacy", "nessuna immagine o firma biometrica pubblicata");
         attributes.put("last_update", isoTime(tablet.time));
 
