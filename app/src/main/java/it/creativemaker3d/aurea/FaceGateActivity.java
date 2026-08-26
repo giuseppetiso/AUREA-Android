@@ -101,6 +101,7 @@ public final class FaceGateActivity extends ComponentActivity {
     private String candidateName;
     private int candidateMatches;
     private int firstSideSign;
+    private String recognitionEngineError = "";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -108,7 +109,11 @@ public final class FaceGateActivity extends ComponentActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         templateStore = new AureaFaceProfileStore(this);
         profiles = templateStore.loadProfiles();
-        recognitionEngine = new AureaFaceRecognitionEngine(this);
+        try {
+            recognitionEngine = new AureaFaceRecognitionEngine(this);
+        } catch (Exception error) {
+            recognitionEngineError = safeMessage(error);
+        }
         faceDetector = createFaceDetector();
         buildInterface();
         hideSystemUi();
@@ -131,6 +136,13 @@ public final class FaceGateActivity extends ComponentActivity {
             enterEnrollmentMode();
         } else {
             enterRecognitionMode();
+        }
+        if (recognitionEngine == null) {
+            statusView.setText(
+                "Motore facciale non disponibile: " + recognitionEngineError
+                    + ". Usa il recupero Home Assistant."
+            );
+            primaryButton.setEnabled(false);
         }
 
         if (checkSelfPermission(Manifest.permission.CAMERA)
@@ -296,6 +308,10 @@ public final class FaceGateActivity extends ComponentActivity {
     }
 
     private void beginEnrollment() {
+        if (recognitionEngine == null) {
+            statusView.setText("Motore facciale non disponibile. Usa il recupero.");
+            return;
+        }
         String name = nameInput.getText().toString().trim();
         if (name.isEmpty()) {
             Toast.makeText(this, "Inserisci il nome della persona", Toast.LENGTH_LONG).show();
@@ -487,6 +503,7 @@ public final class FaceGateActivity extends ComponentActivity {
                     main.post(this::statusForNoFace);
                     return;
                 }
+                if (recognitionEngine == null) return;
                 AureaFaceRecognitionEngine.Capture capture =
                     recognitionEngine.capture(frameBitmap, face);
                 if (!capture.accepted()) {

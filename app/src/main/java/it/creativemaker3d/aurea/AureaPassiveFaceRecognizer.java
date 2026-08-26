@@ -35,7 +35,13 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
         Context application = context.getApplicationContext();
         this.context = application;
         store = new AureaFaceProfileStore(application);
-        engine = new AureaFaceRecognitionEngine(application);
+        AureaFaceRecognitionEngine created;
+        try {
+            created = new AureaFaceRecognitionEngine(application);
+        } catch (Exception ignored) {
+            created = null;
+        }
+        engine = created;
         reload();
     }
 
@@ -44,6 +50,7 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
     }
 
     int profileCount() {
+        if (engine == null) return 0;
         int count = 0;
         for (AureaFaceProfileStore.Profile profile : profiles) {
             if (profile.isCalibratedV2()) count++;
@@ -60,7 +67,9 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
     }
 
     Match recognize(ImageProxy proxy, Face face) {
-        if (proxy == null || face == null || profileCount() == 0) return null;
+        if (engine == null || proxy == null || face == null || profileCount() == 0) {
+            return null;
+        }
         Bitmap source = null;
         Bitmap rotated = null;
         try {
@@ -138,6 +147,6 @@ final class AureaPassiveFaceRecognizer implements AutoCloseable {
 
     @Override
     public void close() {
-        engine.close();
+        if (engine != null) engine.close();
     }
 }

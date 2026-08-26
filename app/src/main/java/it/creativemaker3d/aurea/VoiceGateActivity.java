@@ -359,7 +359,7 @@ public final class VoiceGateActivity extends Activity {
 
         int targetSamples = SAMPLE_RATE * MAX_RECORD_SECONDS;
         short[] output = new short[targetSamples];
-        short[] block = new short[Math.max(1024, bufferBytes / 2)];
+        short[] block = new short[1024];
         int count = 0;
         int preludeBlocks = 0;
         double preludeEnergy = 0d;
