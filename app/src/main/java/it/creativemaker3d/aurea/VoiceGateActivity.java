@@ -34,8 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class VoiceGateActivity extends Activity {
     private static final int AUDIO_PERMISSION = 61;
     private static final int SAMPLE_RATE = 16000;
-    private static final int MAX_RECORD_SECONDS = 4;
-    private static final int REQUIRED_ENROLLMENT_SAMPLES = 3;
+    private static final int MAX_RECORD_SECONDS = 6;
+    private static final int REQUIRED_ENROLLMENT_SAMPLES = 4;
     private static final String GREETING_UTTERANCE = "aurea-person-greeting";
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -62,6 +62,7 @@ public final class VoiceGateActivity extends Activity {
     private boolean forcedEnrollment;
     private boolean returnToPeopleManager;
     private boolean adminVerification;
+    private Float borderlineScore;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -229,9 +230,10 @@ public final class VoiceGateActivity extends Activity {
         titleView.setText("Registra la voce di " + personName);
         phraseView.setText("«" + phrase() + "»");
         statusView.setText(
-            "Premi il pulsante e ripeti la frase tre volte con voce naturale."
+            "Premi il pulsante e ripeti la frase quattro volte con voce naturale. "
+                + "AUREA fermerà automaticamente la registrazione."
         );
-        primaryButton.setText("Registra frase 1/3");
+        primaryButton.setText("Registra frase 1/4");
         primaryButton.setEnabled(true);
         primaryButton.setOnClickListener(v -> startCapture());
         resetButton.setVisibility(View.GONE);
@@ -242,15 +244,28 @@ public final class VoiceGateActivity extends Activity {
     private void enterVerificationMode() {
         enrollmentMode = false;
         enrollmentSamples.clear();
+        borderlineScore = null;
         titleView.setText(adminVerification ? "Conferma amministratore" : "Conferma vocale");
         phraseView.setText("«" + phrase() + "»");
-        statusView.setText(
-            adminVerification
-                ? "Giuseppe, conferma la tua voce per aprire Gestione persone."
-                : "AUREA confronterà la voce con il profilo di " + personName + "."
-        );
+        VoiceProfileStore.VoiceProfile profile = profileStore.loadProfile(personName);
+        boolean calibrated = profile != null && profile.calibratedV2;
+        if (!calibrated) {
+            statusView.setText(
+                "Il vecchio profilo vocale va ricalibrato con il nuovo motore. "
+                    + (adminVerification
+                        ? "Usa il recupero Home Assistant, poi registra di nuovo la voce."
+                        : "Tocca «Registra di nuovo la voce».")
+            );
+        } else {
+            statusView.setText(
+                adminVerification
+                    ? "Giuseppe, conferma la tua voce per aprire Gestione persone."
+                    : "AUREA confronterà più caratteristiche della voce di "
+                        + personName + "."
+            );
+        }
         primaryButton.setText("Avvia verifica vocale");
-        primaryButton.setEnabled(true);
+        primaryButton.setEnabled(calibrated);
         primaryButton.setOnClickListener(v -> startCapture());
         resetButton.setVisibility(adminVerification ? View.GONE : View.VISIBLE);
         continueButton.setVisibility(View.VISIBLE);
@@ -259,7 +274,7 @@ public final class VoiceGateActivity extends Activity {
         );
 
         main.postDelayed(() -> {
-            if (!openingMain && !capturing.get() && !enrollmentMode) {
+            if (!openingMain && !capturing.get() && !enrollmentMode && calibrated) {
                 startCapture();
             }
         }, 900L);
@@ -297,12 +312,13 @@ public final class VoiceGateActivity extends Activity {
             CaptureResult result;
             try {
                 short[] pcm = capturePcm();
-                float[] signature = VoiceSignature.create(pcm, SAMPLE_RATE);
-                result = signature == null
-                    ? CaptureResult.failure(
-                        "Voce troppo bassa o frase incompleta. Riprova."
-                    )
-                    : CaptureResult.success(signature);
+                VoiceSignature.Analysis analysis = VoiceSignature.analyze(
+                    pcm,
+                    SAMPLE_RATE
+                );
+                result = analysis.accepted()
+                    ? CaptureResult.success(analysis)
+                    : CaptureResult.failure(analysis.message);
             } catch (Exception error) {
                 result = CaptureResult.failure(
                     "Microfono non disponibile: " + safeMessage(error)
@@ -345,6 +361,12 @@ public final class VoiceGateActivity extends Activity {
         short[] output = new short[targetSamples];
         short[] block = new short[Math.max(1024, bufferBytes / 2)];
         int count = 0;
+        int preludeBlocks = 0;
+        double preludeEnergy = 0d;
+        double noiseEstimate = 120d;
+        double peakEnergy = 0d;
+        boolean heardVoice = false;
+        int trailingSilence = 0;
 
         try {
             recorder.startRecording();
@@ -366,6 +388,31 @@ public final class VoiceGateActivity extends Activity {
                 }
                 System.arraycopy(block, 0, output, count, read);
                 count += read;
+                double energy = blockRms(block, read);
+                peakEnergy = Math.max(peakEnergy, energy);
+                if (preludeBlocks < 4) {
+                    preludeEnergy += energy;
+                    preludeBlocks++;
+                    noiseEstimate = preludeEnergy / preludeBlocks;
+                } else {
+                    double voiceThreshold = Math.max(190d, noiseEstimate * 2.0d);
+                    if (energy >= voiceThreshold) heardVoice = true;
+                    if (heardVoice) {
+                        double silenceThreshold = Math.max(
+                            145d,
+                            Math.max(noiseEstimate * 1.45d, peakEnergy * 0.13d)
+                        );
+                        if (energy < silenceThreshold) {
+                            trailingSilence += read;
+                        } else {
+                            trailingSilence = 0;
+                        }
+                        if (count >= SAMPLE_RATE * 3 / 2
+                                && trailingSilence >= SAMPLE_RATE * 4 / 5) {
+                            break;
+                        }
+                    }
+                }
             }
         } finally {
             try {
@@ -397,26 +444,26 @@ public final class VoiceGateActivity extends Activity {
         }
 
         if (enrollmentMode) {
-            handleEnrollment(result.signature);
+            handleEnrollment(result.analysis);
         } else {
-            handleVerification(result.signature);
+            handleVerification(result.analysis);
         }
     }
 
-    private void handleEnrollment(float[] signature) {
-        enrollmentSamples.add(signature);
+    private void handleEnrollment(VoiceSignature.Analysis analysis) {
+        enrollmentSamples.add(analysis.signature);
         int count = enrollmentSamples.size();
         if (count < REQUIRED_ENROLLMENT_SAMPLES) {
             statusView.setText(
-                "Campione " + count + "/3 acquisito. Ripeti la stessa frase."
+                "Campione " + count + "/4 acquisito bene (segnale "
+                    + Math.round(analysis.snrDb) + " dB). Ripeti la stessa frase."
             );
-            primaryButton.setText("Registra frase " + (count + 1) + "/3");
+            primaryButton.setText("Registra frase " + (count + 1) + "/4");
             primaryButton.setEnabled(true);
             return;
         }
 
-        float[] mean = VoiceSignature.mean(enrollmentSamples);
-        if (mean == null) {
+        if (VoiceSignature.mean(enrollmentSamples) == null) {
             enrollmentSamples.clear();
             statusView.setText("Registrazione non riuscita. Ricomincia.");
             primaryButton.setText("Ricomincia registrazione");
@@ -424,15 +471,8 @@ public final class VoiceGateActivity extends Activity {
             return;
         }
 
-        float minimumSimilarity = 1f;
-        for (float[] sample : enrollmentSamples) {
-            minimumSimilarity = Math.min(
-                minimumSimilarity,
-                VoiceSignature.similarity(mean, sample)
-            );
-        }
-        float threshold = clamp(minimumSimilarity - 0.05f, 0.86f, 0.95f);
-        profileStore.saveProfile(personName, mean, threshold);
+        float threshold = VoiceSignature.calibratedThreshold(enrollmentSamples);
+        profileStore.saveProfileV2(personName, enrollmentSamples, threshold);
 
         statusView.setText("Voce registrata localmente per " + personName + ".");
         primaryButton.setText("Continua");
@@ -446,7 +486,7 @@ public final class VoiceGateActivity extends Activity {
         main.postDelayed(this::greetAndOpenMain, 1000L);
     }
 
-    private void handleVerification(float[] signature) {
+    private void handleVerification(VoiceSignature.Analysis analysis) {
         VoiceProfileStore.VoiceProfile profile =
             profileStore.loadProfile(personName);
         if (profile == null) {
@@ -454,11 +494,20 @@ public final class VoiceGateActivity extends Activity {
             return;
         }
 
-        float similarity = VoiceSignature.similarity(
-            profile.signature,
-            signature
+        if (!profile.calibratedV2) {
+            enterVerificationMode();
+            return;
+        }
+        float similarity = profileStore.matchScore(profile, analysis.signature);
+        AureaRecognitionDiagnostics.recordVoice(
+            this,
+            similarity,
+            profile.threshold,
+            similarity >= profile.threshold,
+            analysis
         );
         if (similarity >= profile.threshold) {
+            borderlineScore = null;
             if (adminVerification) {
                 statusView.setText("Amministratore confermato.");
                 primaryButton.setText("Confermato");
@@ -476,9 +525,32 @@ public final class VoiceGateActivity extends Activity {
             );
             primaryButton.setText("Confermato");
             main.postDelayed(this::greetAndOpenMain, 450L);
-        } else {
+        } else if (similarity >= profile.threshold - 0.045f) {
+            if (borderlineScore != null
+                    && (borderlineScore + similarity) / 2f
+                        >= profile.threshold - 0.018f) {
+                borderlineScore = null;
+                if (adminVerification) {
+                    statusView.setText("Amministratore confermato su due campioni.");
+                    primaryButton.setEnabled(false);
+                    continueButton.setEnabled(false);
+                    main.postDelayed(() -> openMainActivity(personName), 450L);
+                } else {
+                    statusView.setText("Voce confermata su due campioni.");
+                    main.postDelayed(this::greetAndOpenMain, 450L);
+                }
+                return;
+            }
+            borderlineScore = similarity;
             statusView.setText(
-                "Voce non riconosciuta. Riprova pronunciando la frase completa."
+                "Campione quasi sufficiente e pulito. Ripeti una seconda volta per confermare."
+            );
+            primaryButton.setText("Ripeti una volta");
+            primaryButton.setEnabled(true);
+        } else {
+            borderlineScore = null;
+            statusView.setText(
+                "Voce non riconosciuta. Pronuncia la frase completa con tono naturale."
             );
             primaryButton.setText("Riprova verifica vocale");
             primaryButton.setEnabled(true);
@@ -632,22 +704,33 @@ public final class VoiceGateActivity extends Activity {
             : message.trim();
     }
 
+    private double blockRms(short[] samples, int length) {
+        int end = Math.min(samples.length, Math.max(0, length));
+        if (end == 0) return 0d;
+        double sum = 0d;
+        for (int index = 0; index < end; index++) {
+            double value = samples[index];
+            sum += value * value;
+        }
+        return Math.sqrt(sum / end);
+    }
+
     private static final class CaptureResult {
         final boolean success;
-        final float[] signature;
+        final VoiceSignature.Analysis analysis;
         final String message;
 
         private CaptureResult(
                 boolean success,
-                float[] signature,
+                VoiceSignature.Analysis analysis,
                 String message) {
             this.success = success;
-            this.signature = signature;
+            this.analysis = analysis;
             this.message = message;
         }
 
-        static CaptureResult success(float[] signature) {
-            return new CaptureResult(true, signature, "");
+        static CaptureResult success(VoiceSignature.Analysis analysis) {
+            return new CaptureResult(true, analysis, "");
         }
 
         static CaptureResult failure(String message) {

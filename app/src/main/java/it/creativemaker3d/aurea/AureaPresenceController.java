@@ -129,6 +129,7 @@ final class AureaPresenceController {
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setMinFaceSize(0.18f)
             .build();
         detector = FaceDetection.getClient(options);
@@ -210,6 +211,7 @@ final class AureaPresenceController {
         stop();
         destroyed = true;
         detector.close();
+        recognizer.close();
         cameraExecutor.shutdownNow();
         publisher.close();
         identityPublisher.close();
@@ -227,7 +229,7 @@ final class AureaPresenceController {
             try {
                 cameraProvider = future.get();
                 analysis = new ImageAnalysis.Builder()
-                    .setTargetResolution(new Size(320, 240))
+                    .setTargetResolution(new Size(640, 480))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build();
                 analysis.setAnalyzer(cameraExecutor, this::analyzeFrame);

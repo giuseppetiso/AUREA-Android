@@ -14,8 +14,47 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:${cameraxVersion}"
     implementation "androidx.camera:camera-view:${cameraxVersion}"
     implementation "com.google.mlkit:face-detection:16.1.7"
+    implementation "com.google.mediapipe:tasks-vision:1.0.0"
     implementation "net.java.dev.jna:jna:5.18.1@aar"
     implementation "com.alphacephei:vosk-android:0.3.75@aar"
+    testImplementation "junit:junit:4.13.2"
+}
+
+def aureaFaceModel = file("src/main/assets/mobilenet_v3_large.tflite")
+def aureaFaceModelUrl =
+    "https://storage.googleapis.com/mediapipe-models/image_embedder/" +
+    "mobilenet_v3_large/float32/1/mobilenet_v3_large.tflite"
+def aureaFaceModelSha256 =
+    "11af3c560dfeed7737cb4c03c23bf52a8403020784192d4dea0b74862a12828d"
+
+tasks.register("downloadAureaFaceModel") {
+    outputs.file(aureaFaceModel)
+    outputs.upToDateWhen { false }
+    doLast {
+        aureaFaceModel.parentFile.mkdirs()
+        if (!aureaFaceModel.exists()) {
+            new URL(aureaFaceModelUrl).withInputStream { input ->
+                aureaFaceModel.withOutputStream { output -> output << input }
+            }
+        }
+        def digest = java.security.MessageDigest.getInstance("SHA-256")
+        aureaFaceModel.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int read
+            while ((read = input.read(buffer)) > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        def actual = digest.digest().encodeHex().toString()
+        if (actual != aureaFaceModelSha256) {
+            aureaFaceModel.delete()
+            throw new GradleException("Modello facciale AUREA non valido")
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("downloadAureaFaceModel")
 }
 
 android {
@@ -26,8 +65,8 @@ android {
         applicationId "it.creativemaker3d.aurea"
         minSdk 26
         targetSdk 35
-        versionCode 62
-        versionName "0.13.2"
+        versionCode 63
+        versionName "0.14.0"
     }
 
     buildFeatures {

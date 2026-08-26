@@ -382,13 +382,31 @@ final class AureaDiagnosticsProbe {
 
         boolean identityEnabled = AureaPresenceController.isRecognitionEnabled(context);
         int faceProfiles = AureaPassiveFaceRecognizer.profileCount(context);
+        int calibratedFaces = AureaPassiveFaceRecognizer.calibratedProfileCount(context);
         checks.add(new Check(
             "AUREA Identity passiva",
-            identityEnabled && faceProfiles == 0 ? Status.WARNING : Status.INFO,
+            identityEnabled && calibratedFaces == 0 ? Status.WARNING : Status.OK,
             "Riconoscimento locale: " + (identityEnabled ? "attivo" : "disattivato")
-                + " · profili disponibili: " + faceProfiles
+                + " · profili totali: " + faceProfiles
+                + " · calibrati v2: " + calibratedFaces
+                + " · " + AureaRecognitionDiagnostics.faceSummary(context)
                 + " · " + AureaIdentityPublisher.summary(context)
                 + " Il risultato non autorizza azioni sensibili."
+        ));
+
+        VoiceProfileStore voiceProfiles = new VoiceProfileStore(context);
+        boolean voiceAvailable = voiceProfiles.hasProfile(AdminAccessStore.ADMIN_NAME);
+        boolean voiceCalibrated = voiceAvailable
+            && !voiceProfiles.needsCalibration(AdminAccessStore.ADMIN_NAME);
+        checks.add(new Check(
+            "AUREA Voice Identity",
+            voiceCalibrated ? Status.OK : Status.WARNING,
+            "Profilo amministratore: "
+                + (voiceCalibrated
+                    ? "calibrato v2"
+                    : (voiceAvailable ? "da calibrare" : "non registrato"))
+                + " · " + AureaRecognitionDiagnostics.voiceSummary(context)
+                + ". Audio e firme non compaiono nel rapporto."
         ));
 
         int memories = new AureaLearningStore(context).count(person);

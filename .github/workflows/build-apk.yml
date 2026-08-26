@@ -30,7 +30,11 @@ jobs:
 
       - name: Compila controllo pull request
         if: github.event_name == 'pull_request'
-        run: gradle :app:assembleDebug
+        run: gradle :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Test riconoscimento prima della release
+        if: github.event_name != 'pull_request'
+        run: gradle :app:testDebugUnitTest
 
       - name: Ricrea la chiave di firma AUREA
         if: github.event_name != 'pull_request'

@@ -63,14 +63,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class FaceGateActivity extends ComponentActivity {
     private static final int CAMERA_PERMISSION = 52;
-    private static final int TARGET_SAMPLES = 10;
-    private static final long SAMPLE_INTERVAL_MS = 320L;
+    private static final int TARGET_SAMPLES = 12;
+    private static final long SAMPLE_INTERVAL_MS = 420L;
     private static final int REQUIRED_MATCHES = 3;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService cameraExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean processing = new AtomicBoolean(false);
-    private final ArrayList<float[]> enrollmentSamples = new ArrayList<>();
+    private final ArrayList<AureaFaceRecognitionEngine.Sample> enrollmentSamples =
+        new ArrayList<>();
 
     private PreviewView previewView;
     private TextView titleView;
@@ -83,8 +84,9 @@ public final class FaceGateActivity extends ComponentActivity {
 
     private ProcessCameraProvider cameraProvider;
     private FaceDetector faceDetector;
-    private FaceTemplateStore templateStore;
-    private List<FaceProfile> profiles = new ArrayList<>();
+    private AureaFaceRecognitionEngine recognitionEngine;
+    private AureaFaceProfileStore templateStore;
+    private List<AureaFaceProfileStore.Profile> profiles = new ArrayList<>();
 
     private boolean enrollmentMode;
     private boolean enrollmentActive;
@@ -98,13 +100,15 @@ public final class FaceGateActivity extends ComponentActivity {
     private long lastSampleAt;
     private String candidateName;
     private int candidateMatches;
+    private int firstSideSign;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        templateStore = new FaceTemplateStore();
+        templateStore = new AureaFaceProfileStore(this);
         profiles = templateStore.loadProfiles();
+        recognitionEngine = new AureaFaceRecognitionEngine(this);
         faceDetector = createFaceDetector();
         buildInterface();
         hideSystemUi();
@@ -139,8 +143,9 @@ public final class FaceGateActivity extends ComponentActivity {
 
     private FaceDetector createFaceDetector() {
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setMinFaceSize(0.28f)
             .build();
         return FaceDetection.getClient(options);
@@ -265,6 +270,7 @@ public final class FaceGateActivity extends ComponentActivity {
         enrollmentSamples.clear();
         candidateName = null;
         candidateMatches = 0;
+        firstSideSign = 0;
 
         titleView.setText(faceOnly ? "Registra di nuovo il volto" : "Registra il volto");
         statusView.setText(
@@ -305,10 +311,11 @@ public final class FaceGateActivity extends ComponentActivity {
         enrollmentActive = true;
         recognitionActive = false;
         lastSampleAt = 0L;
+        firstSideSign = 0;
         nameInput.setEnabled(false);
         primaryButton.setEnabled(false);
         statusView.setText(
-            "Guarda dritto e muovi lentamente il viso. Campioni acquisiti: 0/"
+            "Guarda dritto e resta fermo. Campioni di qualità: 0/"
                 + TARGET_SAMPLES
         );
     }
@@ -328,7 +335,27 @@ public final class FaceGateActivity extends ComponentActivity {
         continueButton.setVisibility(View.VISIBLE);
         boolean adminRecovery = new AdminAccessStore(this).isAccessRequested()
             && new VoiceProfileStore(this).hasProfile(AdminAccessStore.ADMIN_NAME);
+        if (adminRecovery
+                && new VoiceProfileStore(this).needsCalibration(AdminAccessStore.ADMIN_NAME)) {
+            voiceRecoveryButton.setText("Recupera tramite Home Assistant");
+        } else {
+            voiceRecoveryButton.setText("Recupera con la voce di Giuseppe");
+        }
         voiceRecoveryButton.setVisibility(adminRecovery ? View.VISIBLE : View.GONE);
+
+        boolean calibrated = false;
+        for (AureaFaceProfileStore.Profile profile : profiles) {
+            if (profile.isCalibratedV2()) {
+                calibrated = true;
+                break;
+            }
+        }
+        if (!calibrated && !profiles.isEmpty()) {
+            statusView.setText(
+                "Il profilo precedente va calibrato con il nuovo motore. "
+                    + "Tocca «Registra un'altra persona» oppure usa il recupero amministratore."
+            );
+        }
 
         main.postDelayed(() -> {
             if (!openingMain && recognitionActive && candidateMatches < REQUIRED_MATCHES) {
@@ -344,12 +371,22 @@ public final class FaceGateActivity extends ComponentActivity {
     private void openAdminVoiceRecovery() {
         if (openingMain || !new AdminAccessStore(this).isAccessRequested()) return;
         String administrator = AdminAccessStore.ADMIN_NAME;
-        if (!new VoiceProfileStore(this).hasProfile(administrator)) {
+        VoiceProfileStore voiceStore = new VoiceProfileStore(this);
+        if (!voiceStore.hasProfile(administrator)) {
             Toast.makeText(
                 this,
                 "Profilo vocale di Giuseppe non disponibile",
                 Toast.LENGTH_LONG
             ).show();
+            return;
+        }
+        if (voiceStore.needsCalibration(administrator)) {
+            openingMain = true;
+            enrollmentActive = false;
+            recognitionActive = false;
+            if (cameraProvider != null) cameraProvider.unbindAll();
+            startActivity(new Intent(this, AureaAdminRecoveryActivity.class));
+            finish();
             return;
         }
         openingMain = true;
@@ -450,25 +487,17 @@ public final class FaceGateActivity extends ComponentActivity {
                     main.post(this::statusForNoFace);
                     return;
                 }
-                if (!isUsableFace(face, frameBitmap)) {
-                    main.post(() -> statusView.setText(
-                        "Avvicinati leggermente e guarda dritto verso la fotocamera."
-                    ));
-                    return;
-                }
-
-                float[] signature = FaceSignature.create(
-                    frameBitmap,
-                    face.getBoundingBox()
-                );
-                if (signature == null) {
+                AureaFaceRecognitionEngine.Capture capture =
+                    recognitionEngine.capture(frameBitmap, face);
+                if (!capture.accepted()) {
+                    main.post(() -> statusView.setText(capture.guidance));
                     return;
                 }
 
                 if (enrollmentActive) {
-                    processEnrollmentSample(signature);
+                    processEnrollmentSample(capture.sample);
                 } else if (recognitionActive) {
-                    processRecognitionSample(signature);
+                    processRecognitionSample(capture.sample);
                 }
             })
             .addOnFailureListener(cameraExecutor, error -> main.post(() ->
@@ -530,18 +559,64 @@ public final class FaceGateActivity extends ComponentActivity {
             && box.top < bitmap.getHeight();
     }
 
-    private void processEnrollmentSample(float[] signature) {
+    private void processEnrollmentSample(AureaFaceRecognitionEngine.Sample sample) {
         long now = System.currentTimeMillis();
         synchronized (enrollmentSamples) {
             if (!enrollmentActive || now - lastSampleAt < SAMPLE_INTERVAL_MS) {
                 return;
             }
-            lastSampleAt = now;
-            enrollmentSamples.add(signature);
             int count = enrollmentSamples.size();
+            float yaw = sample.yaw;
+            if (count < 4 && Math.abs(yaw) > 11f) {
+                main.post(() -> statusView.setText(
+                    "Prima fase: guarda dritto verso la fotocamera."
+                ));
+                return;
+            }
+            if (count >= 4 && count < 8) {
+                if (Math.abs(yaw) < 8f) {
+                    main.post(() -> statusView.setText(
+                        "Seconda fase: ruota leggermente il viso verso un lato."
+                    ));
+                    return;
+                }
+                int sign = yaw < 0f ? -1 : 1;
+                if (firstSideSign == 0) firstSideSign = sign;
+                if (sign != firstSideSign) {
+                    main.post(() -> statusView.setText(
+                        "Mantieni ancora per un momento questo primo lato."
+                    ));
+                    return;
+                }
+            }
+            if (count >= 8) {
+                int sign = yaw < 0f ? -1 : 1;
+                if (Math.abs(yaw) < 8f || sign == firstSideSign) {
+                    main.post(() -> statusView.setText(
+                        "Terza fase: ruota leggermente il viso verso l'altro lato."
+                    ));
+                    return;
+                }
+            }
+            if (!AureaFaceRecognitionEngine.addsDiversity(enrollmentSamples, sample)) {
+                main.post(() -> statusView.setText(
+                    "Cambia di poco espressione o inclinazione del viso."
+                ));
+                return;
+            }
+            lastSampleAt = now;
+            enrollmentSamples.add(sample);
+            count = enrollmentSamples.size();
+            String next = count < 4
+                ? "Guarda dritto."
+                : (count < 8
+                    ? "Ora ruota leggermente verso un lato."
+                    : "Ora ruota leggermente verso l'altro lato.");
+            final int captureCount = count;
+            final String nextGuidance = next;
             main.post(() -> statusView.setText(
-                "Muovi lentamente il viso. Campioni acquisiti: "
-                    + count + "/" + TARGET_SAMPLES
+                nextGuidance + " Campioni di qualità: "
+                    + captureCount + "/" + TARGET_SAMPLES
             ));
             if (count < TARGET_SAMPLES) {
                 return;
@@ -549,24 +624,11 @@ public final class FaceGateActivity extends ComponentActivity {
             enrollmentActive = false;
         }
 
-        float[] mean = FaceSignature.mean(enrollmentSamples);
-        if (mean == null) {
-            main.post(() -> resetEnrollmentAfterError(
-                "Registrazione non riuscita. Riprova con luce uniforme."
-            ));
-            return;
-        }
-
-        float minimumSimilarity = 1f;
-        for (float[] sample : enrollmentSamples) {
-            minimumSimilarity = Math.min(
-                minimumSimilarity,
-                FaceSignature.similarity(mean, sample)
-            );
-        }
-        float threshold = clamp(minimumSimilarity - 0.08f, 0.74f, 0.88f);
+        float threshold = AureaFaceRecognitionEngine.calibratedThreshold(
+            enrollmentSamples
+        );
         String name = nameInput.getText().toString().trim();
-        templateStore.saveProfile(name, mean, threshold);
+        templateStore.saveV2(name, enrollmentSamples, threshold);
         profiles = templateStore.loadProfiles();
 
         main.post(() -> {
@@ -588,32 +650,34 @@ public final class FaceGateActivity extends ComponentActivity {
         statusView.setText(message);
     }
 
-    private void processRecognitionSample(float[] signature) {
-        FaceProfile best = null;
-        float bestScore = -1f;
-        for (FaceProfile profile : profiles) {
-            float score = FaceSignature.similarity(profile.vector, signature);
-            if (score > bestScore) {
-                best = profile;
-                bestScore = score;
-            }
-        }
-
-        if (best == null || bestScore < best.threshold) {
+    private void processRecognitionSample(AureaFaceRecognitionEngine.Sample sample) {
+        AureaFaceRecognitionEngine.ProfileScore result =
+            recognitionEngine.bestProfile(sample, profiles);
+        boolean accepted = result.accepted(profiles.size());
+        AureaRecognitionDiagnostics.recordFace(
+            this,
+            result.score,
+            result.required,
+            accepted,
+            sample
+        );
+        if (!accepted) {
             candidateName = null;
             candidateMatches = 0;
-            main.post(() -> statusView.setText("Sto confrontando il volto…"));
+            main.post(() -> statusView.setText(
+                "Sto confrontando il volto… qualità buona, identità non ancora certa."
+            ));
             return;
         }
 
-        if (best.name.equals(candidateName)) {
+        if (result.name.equals(candidateName)) {
             candidateMatches++;
         } else {
-            candidateName = best.name;
+            candidateName = result.name;
             candidateMatches = 1;
         }
 
-        final String matchedName = best.name;
+        final String matchedName = result.name;
         final int matches = candidateMatches;
         main.post(() -> {
             if (matches < REQUIRED_MATCHES) {
@@ -765,6 +829,10 @@ public final class FaceGateActivity extends ComponentActivity {
         if (faceDetector != null) {
             faceDetector.close();
             faceDetector = null;
+        }
+        if (recognitionEngine != null) {
+            recognitionEngine.close();
+            recognitionEngine = null;
         }
         cameraExecutor.shutdownNow();
         super.onDestroy();

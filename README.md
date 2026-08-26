@@ -41,13 +41,21 @@ automaticamente e riparte quando il tablet torna a una temperatura sicura.
 ## AUREA Identity passiva
 
 Quando AUREA Presence rileva un volto sufficientemente vicino e frontale,
-confronta localmente una firma temporanea con i profili già registrati. Servono
-più corrispondenze consecutive; i casi dubbi restano `sconosciuto`. Home
+allinea occhi e volto, verifica luce e nitidezza e confronta localmente un
+embedding neurale più una firma strutturale con dodici campioni diversificati
+per profilo. Servono più corrispondenze consecutive; i casi dubbi restano
+`sconosciuto`. Home
 Assistant riceve soltanto il risultato tramite
 `sensor.aurea_tablet_recognized_person`, mai fotografie o firme biometriche.
 Il sensore è destinato alla personalizzazione e non autorizza portoni, allarmi,
 pagamenti o altre azioni sensibili. Il riconoscimento può essere disattivato
 separatamente da Strumenti AUREA.
+
+La verifica vocale v2 individua automaticamente inizio e fine della frase,
+scarta campioni troppo rumorosi, bassi o saturi e confronta quattro modelli
+locali di timbro e prosodia. Un risultato appena sotto soglia richiede due
+campioni coerenti invece di fallire immediatamente. La diagnostica conserva
+soltanto qualità, punteggio e soglia: mai audio, immagini o firme biometriche.
 
 Se il vecchio modello del volto non permette più di aprire Gestione persone,
 Giuseppe può usare il recupero tramite la propria voce già registrata e, dopo

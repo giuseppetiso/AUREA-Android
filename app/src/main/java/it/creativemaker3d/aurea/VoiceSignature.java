@@ -1,252 +1,304 @@
 package it.creativemaker3d.aurea;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
+/** Firma vocale locale v2 con VAD, qualità, timbro e prosodia. */
 final class VoiceSignature {
+    private static final int FRAME = 320;
     private static final int SEGMENTS = 12;
-    private static final int TIMBRE_FEATURES = 20;
-    private static final double[] BAND_FREQUENCIES = {
-        180.0, 260.0, 380.0, 540.0, 760.0,
-        1050.0, 1450.0, 2000.0, 2750.0, 3600.0
-    };
+    private static final int BANDS = 20;
+    private static final int SPECTRAL_FEATURES = BANDS * 3;
+    private static final double MIN_SPEECH_SECONDS = 0.90;
+    private static final double MAX_SPEECH_SECONDS = 4.80;
+
+    static final class Analysis {
+        final float[] signature;
+        final String message;
+        final float snrDb;
+        final float speechSeconds;
+        final float clippingRatio;
+
+        private Analysis(
+                float[] signature,
+                String message,
+                float snrDb,
+                float speechSeconds,
+                float clippingRatio) {
+            this.signature = signature;
+            this.message = message == null ? "" : message;
+            this.snrDb = snrDb;
+            this.speechSeconds = speechSeconds;
+            this.clippingRatio = clippingRatio;
+        }
+
+        static Analysis failure(String message) {
+            return new Analysis(null, message, 0f, 0f, 0f);
+        }
+
+        boolean accepted() {
+            return signature != null;
+        }
+    }
 
     private VoiceSignature() {
     }
 
-    static float[] create(short[] pcm, int sampleRate) {
-        if (pcm == null || pcm.length < sampleRate) {
-            return null;
+    static Analysis analyze(short[] pcm, int sampleRate) {
+        if (pcm == null || sampleRate < 8000 || pcm.length < sampleRate / 2) {
+            return Analysis.failure("Frase incompleta. Riprova con voce naturale.");
         }
 
-        int frame = 320;
-        int frameCount = pcm.length / frame;
-        if (frameCount < 10) {
-            return null;
+        int frameCount = pcm.length / FRAME;
+        if (frameCount < 12) {
+            return Analysis.failure("Frase troppo breve. Ripetila per intero.");
+        }
+        double[] frameRms = new double[frameCount];
+        double maximum = 0d;
+        for (int index = 0; index < frameCount; index++) {
+            frameRms[index] = rms(pcm, index * FRAME, FRAME);
+            maximum = Math.max(maximum, frameRms[index]);
+        }
+        if (maximum < 170d) {
+            return Analysis.failure("Voce troppo bassa. Avvicinati leggermente.");
         }
 
-        double[] rms = new double[frameCount];
-        double maximum = 0.0;
-        for (int i = 0; i < frameCount; i++) {
-            double value = rms(pcm, i * frame, frame);
-            rms[i] = value;
-            maximum = Math.max(maximum, value);
-        }
-        if (maximum < 180.0) {
-            return null;
-        }
+        double[] sorted = frameRms.clone();
+        Arrays.sort(sorted);
+        double noise = sorted[Math.min(sorted.length - 1, sorted.length / 5)];
+        double threshold = Math.max(noise * 2.1d, noise + 95d);
+        threshold = Math.min(threshold, maximum * 0.42d);
 
-        double threshold = Math.max(130.0, maximum * 0.15);
+        boolean[] active = new boolean[frameCount];
+        for (int index = 0; index < frameCount; index++) {
+            active[index] = frameRms[index] >= threshold;
+        }
+        bridgeShortGaps(active, 4);
         int first = -1;
         int last = -1;
-        for (int i = 0; i < frameCount; i++) {
-            if (rms[i] >= threshold) {
-                if (first < 0) {
-                    first = i;
-                }
-                last = i;
-            }
+        for (int index = 0; index < frameCount; index++) {
+            if (!active[index]) continue;
+            if (first < 0) first = index;
+            last = index;
         }
         if (first < 0 || last < first) {
-            return null;
+            return Analysis.failure("Non ho rilevato la frase. Riprova senza fretta.");
         }
-
         first = Math.max(0, first - 2);
         last = Math.min(frameCount - 1, last + 2);
-        int start = first * frame;
-        int end = Math.min(pcm.length, (last + 1) * frame);
+        int start = first * FRAME;
+        int end = Math.min(pcm.length, (last + 1) * FRAME);
         int speechLength = end - start;
-        if (speechLength < sampleRate * 0.50) {
-            return null;
+        float seconds = speechLength / (float) sampleRate;
+        if (seconds < MIN_SPEECH_SECONDS) {
+            return Analysis.failure("Frase troppo breve. Pronunciala completamente.");
+        }
+        if (seconds > MAX_SPEECH_SECONDS) {
+            return Analysis.failure("Frase troppo lenta o con troppo rumore. Riprova.");
         }
 
-        int bands = BAND_FREQUENCIES.length;
-        double[][] bandValues = new double[SEGMENTS][bands];
-        double[] pitchValues = new double[SEGMENTS];
-        double[] zcrValues = new double[SEGMENTS];
-        double[] energyEnvelope = new double[SEGMENTS];
-
-        for (int segment = 0; segment < SEGMENTS; segment++) {
-            int segmentStart = start + speechLength * segment / SEGMENTS;
-            int segmentEnd = start + speechLength * (segment + 1) / SEGMENTS;
-            int length = Math.max(1, segmentEnd - segmentStart);
-
-            double energy = rms(pcm, segmentStart, length);
-            energyEnvelope[segment] = Math.log1p(energy);
-            zcrValues[segment] = zeroCrossingRate(pcm, segmentStart, length);
-            pitchValues[segment] = estimatePitch(
-                pcm,
-                segmentStart,
-                length,
-                sampleRate
-            );
-
-            double totalBandPower = 0.0;
-            for (int band = 0; band < bands; band++) {
-                double power = goertzelPower(
-                    pcm,
-                    segmentStart,
-                    length,
-                    sampleRate,
-                    BAND_FREQUENCIES[band]
-                );
-                bandValues[segment][band] = power;
-                totalBandPower += power;
-            }
-            totalBandPower = Math.max(totalBandPower, 1e-9);
-            for (int band = 0; band < bands; band++) {
-                bandValues[segment][band] = Math.log(
-                    1e-9 + bandValues[segment][band] / totalBandPower
-                );
-            }
+        double speechRms = rms(pcm, start, speechLength);
+        float snrDb = (float) (20d * Math.log10((speechRms + 1d) / (noise + 1d)));
+        if (snrDb < 7.5f) {
+            return Analysis.failure("Troppo rumore vicino al tablet. Attendi silenzio e riprova.");
         }
 
-        float[] vector = new float[bands * 2 + 4 + 8];
-        int index = 0;
-        for (int band = 0; band < bands; band++) {
-            double mean = 0.0;
-            for (int segment = 0; segment < SEGMENTS; segment++) {
-                mean += bandValues[segment][band];
-            }
-            mean /= SEGMENTS;
-            vector[index++] = (float) (mean / 8.0);
+        int clipped = 0;
+        for (int index = start; index < end; index++) {
+            if (Math.abs((int) pcm[index]) >= 32700) clipped++;
         }
-        for (int band = 0; band < bands; band++) {
-            double mean = 0.0;
-            for (int segment = 0; segment < SEGMENTS; segment++) {
-                mean += bandValues[segment][band];
-            }
-            mean /= SEGMENTS;
-            double variance = 0.0;
-            for (int segment = 0; segment < SEGMENTS; segment++) {
-                double delta = bandValues[segment][band] - mean;
-                variance += delta * delta;
-            }
-            variance /= SEGMENTS;
-            vector[index++] = (float) (Math.sqrt(variance) / 4.0);
+        float clipping = clipped / (float) speechLength;
+        if (clipping > 0.008f) {
+            return Analysis.failure("Voce troppo forte o troppo vicina. Allontanati un poco.");
         }
 
-        double pitchMean = meanPositive(pitchValues);
-        double pitchStd = stdPositive(pitchValues, pitchMean);
-        double zcrMean = mean(zcrValues);
-        vector[index++] = (float) (pitchMean / 350.0);
-        vector[index++] = (float) (pitchStd / 160.0);
-        vector[index++] = (float) zcrMean;
-        vector[index++] = (float) std(zcrValues, zcrMean);
-
-        double envelopeMean = mean(energyEnvelope);
-        double envelopeStd = Math.max(1e-6, std(energyEnvelope, envelopeMean));
-        for (int i = 0; i < 8; i++) {
-            int from = i * SEGMENTS / 8;
-            int to = Math.max(from + 1, (i + 1) * SEGMENTS / 8);
-            double value = 0.0;
-            for (int segment = from; segment < to; segment++) {
-                value += energyEnvelope[segment];
-            }
-            value /= (to - from);
-            vector[index++] = (float) ((value - envelopeMean) / envelopeStd);
+        float[] signature = features(pcm, start, speechLength, sampleRate);
+        if (signature == null) {
+            return Analysis.failure("Campione vocale non abbastanza chiaro. Riprova.");
         }
+        return new Analysis(signature, "", snrDb, seconds, clipping);
+    }
 
-        normalize(vector);
-        return vector;
+    static float[] create(short[] pcm, int sampleRate) {
+        return analyze(pcm, sampleRate).signature;
     }
 
     static float[] mean(List<float[]> samples) {
-        if (samples == null || samples.isEmpty()) {
-            return null;
-        }
+        if (samples == null || samples.isEmpty()) return null;
         int size = samples.get(0).length;
         float[] result = new float[size];
+        int valid = 0;
         for (float[] sample : samples) {
-            if (sample == null || sample.length != size) {
-                return null;
-            }
-            for (int i = 0; i < size; i++) {
-                result[i] += sample[i];
-            }
+            if (sample == null || sample.length != size) continue;
+            valid++;
+            for (int index = 0; index < size; index++) result[index] += sample[index];
         }
-        for (int i = 0; i < size; i++) {
-            result[i] /= samples.size();
-        }
+        if (valid == 0) return null;
+        for (int index = 0; index < size; index++) result[index] /= valid;
         normalize(result);
         return result;
     }
 
     static float similarity(float[] first, float[] second) {
-        if (first == null || second == null || first.length != second.length) {
-            return -1f;
-        }
-
+        if (first == null || second == null || first.length != second.length) return -1f;
         float complete = cosineRange(first, second, 0, first.length);
-        int timbreEnd = Math.min(TIMBRE_FEATURES, first.length);
-        float timbre = cosineRange(first, second, 0, timbreEnd);
-        float prosody = cosineRange(first, second, timbreEnd, first.length);
-
-        if (complete < -0.5f || timbre < -0.5f || prosody < -0.5f) {
+        int spectralEnd = Math.min(SPECTRAL_FEATURES, first.length);
+        float spectral = cosineRange(first, second, 0, spectralEnd);
+        float prosody = cosineRange(first, second, spectralEnd, first.length);
+        if (complete < -0.5f || spectral < -0.5f || prosody < -0.5f) {
             return complete;
         }
-
-        float[] comparisons = {complete, timbre, prosody};
-        Arrays.sort(comparisons);
-        float robust = comparisons[0] * 0.15f
-            + comparisons[1] * 0.55f
-            + comparisons[2] * 0.30f
-            + 0.03f;
-        return clamp(robust, -1f, 1f);
+        return clamp(complete * 0.45f + spectral * 0.42f + prosody * 0.13f, -1f, 1f);
     }
 
-    private static float cosineRange(
-            float[] first,
-            float[] second,
+    static float profileScore(List<float[]> templates, float[] centroid, float[] query) {
+        ArrayList<Float> scores = new ArrayList<>();
+        if (templates != null) {
+            for (float[] template : templates) {
+                float score = similarity(template, query);
+                if (score > -0.5f) scores.add(score);
+            }
+        }
+        float centroidScore = similarity(centroid, query);
+        if (scores.isEmpty()) return centroidScore;
+        scores.sort(Collections.reverseOrder());
+        float best = scores.get(0);
+        float support = scores.size() > 1 ? scores.get(1) : centroidScore;
+        return best * 0.58f + support * 0.24f + centroidScore * 0.18f;
+    }
+
+    static float calibratedThreshold(List<float[]> samples) {
+        if (samples == null || samples.size() < 3) return 0.78f;
+        ArrayList<Float> genuine = new ArrayList<>();
+        for (int index = 0; index < samples.size(); index++) {
+            ArrayList<float[]> others = new ArrayList<>(samples);
+            float[] query = others.remove(index);
+            genuine.add(profileScore(others, mean(others), query));
+        }
+        Collections.sort(genuine);
+        float weakest = genuine.get(0);
+        return clamp(weakest - 0.055f, 0.72f, 0.88f);
+    }
+
+    private static float[] features(
+            short[] pcm,
             int start,
-            int end) {
-        int safeStart = Math.max(0, start);
-        int safeEnd = Math.min(Math.min(first.length, second.length), end);
-        if (safeStart >= safeEnd) {
-            return -1f;
+            int length,
+            int sampleRate) {
+        double[][] bands = new double[SEGMENTS][BANDS];
+        double[] pitch = new double[SEGMENTS];
+        double[] zcr = new double[SEGMENTS];
+        double[] envelope = new double[SEGMENTS];
+        for (int segment = 0; segment < SEGMENTS; segment++) {
+            int segmentStart = start + length * segment / SEGMENTS;
+            int segmentEnd = start + length * (segment + 1) / SEGMENTS;
+            int segmentLength = Math.max(FRAME, segmentEnd - segmentStart);
+            segmentLength = Math.min(segmentLength, pcm.length - segmentStart);
+            if (segmentLength <= 0) return null;
+            envelope[segment] = Math.log1p(rms(pcm, segmentStart, segmentLength));
+            zcr[segment] = zeroCrossingRate(pcm, segmentStart, segmentLength);
+            pitch[segment] = estimatePitch(pcm, segmentStart, segmentLength, sampleRate);
+
+            double total = 0d;
+            for (int band = 0; band < BANDS; band++) {
+                double ratio = band / (double) (BANDS - 1);
+                double frequency = 120d * Math.pow(7200d / 120d, ratio);
+                double power = goertzelPower(
+                    pcm, segmentStart, segmentLength, sampleRate, frequency
+                );
+                bands[segment][band] = power;
+                total += power;
+            }
+            total = Math.max(total, 1e-12);
+            for (int band = 0; band < BANDS; band++) {
+                bands[segment][band] = Math.log1p(bands[segment][band] / total * 1e6);
+            }
         }
 
-        double dot = 0.0;
-        double normFirst = 0.0;
-        double normSecond = 0.0;
-        for (int i = safeStart; i < safeEnd; i++) {
-            dot += first[i] * second[i];
-            normFirst += first[i] * first[i];
-            normSecond += second[i] * second[i];
+        float[] vector = new float[SPECTRAL_FEATURES + 5 + SEGMENTS];
+        int position = 0;
+        for (int band = 0; band < BANDS; band++) {
+            double mean = columnMean(bands, band);
+            vector[position++] = (float) (mean / 12d);
         }
-        if (normFirst <= 0.0 || normSecond <= 0.0) {
-            return -1f;
+        for (int band = 0; band < BANDS; band++) {
+            double mean = columnMean(bands, band);
+            vector[position++] = (float) (columnStd(bands, band, mean) / 6d);
         }
-        return (float) (dot / Math.sqrt(normFirst * normSecond));
+        for (int band = 0; band < BANDS; band++) {
+            double delta = 0d;
+            for (int segment = 1; segment < SEGMENTS; segment++) {
+                delta += Math.abs(bands[segment][band] - bands[segment - 1][band]);
+            }
+            vector[position++] = (float) (delta / ((SEGMENTS - 1) * 6d));
+        }
+
+        double pitchMean = meanPositive(pitch);
+        double zcrMean = mean(zcr);
+        int voiced = 0;
+        for (double value : pitch) if (value > 0d) voiced++;
+        vector[position++] = (float) (pitchMean / 350d);
+        vector[position++] = (float) (stdPositive(pitch, pitchMean) / 160d);
+        vector[position++] = voiced / (float) SEGMENTS;
+        vector[position++] = (float) zcrMean;
+        vector[position++] = (float) std(zcr, zcrMean);
+
+        double envelopeMean = mean(envelope);
+        double envelopeStd = Math.max(1e-6, std(envelope, envelopeMean));
+        for (double value : envelope) {
+            vector[position++] = (float) ((value - envelopeMean) / envelopeStd);
+        }
+        normalize(vector);
+        return vector;
+    }
+
+    private static void bridgeShortGaps(boolean[] active, int maximumGap) {
+        int lastActive = -1;
+        for (int index = 0; index < active.length; index++) {
+            if (!active[index]) continue;
+            if (lastActive >= 0 && index - lastActive - 1 <= maximumGap) {
+                for (int fill = lastActive + 1; fill < index; fill++) active[fill] = true;
+            }
+            lastActive = index;
+        }
+    }
+
+    private static float cosineRange(float[] first, float[] second, int start, int end) {
+        int safeEnd = Math.min(Math.min(first.length, second.length), end);
+        if (start >= safeEnd) return -1f;
+        double dot = 0d;
+        double firstNorm = 0d;
+        double secondNorm = 0d;
+        for (int index = start; index < safeEnd; index++) {
+            dot += first[index] * second[index];
+            firstNorm += first[index] * first[index];
+            secondNorm += second[index] * second[index];
+        }
+        if (firstNorm <= 0d || secondNorm <= 0d) return -1f;
+        return (float) (dot / Math.sqrt(firstNorm * secondNorm));
     }
 
     private static double rms(short[] samples, int start, int length) {
         int end = Math.min(samples.length, start + length);
-        if (start < 0 || start >= end) {
-            return 0.0;
-        }
-        double sum = 0.0;
-        for (int i = start; i < end; i++) {
-            double value = samples[i];
+        if (start < 0 || start >= end) return 0d;
+        double sum = 0d;
+        for (int index = start; index < end; index++) {
+            double value = samples[index];
             sum += value * value;
         }
         return Math.sqrt(sum / (end - start));
     }
 
-    private static double zeroCrossingRate(
-            short[] samples,
-            int start,
-            int length) {
+    private static double zeroCrossingRate(short[] samples, int start, int length) {
         int end = Math.min(samples.length, start + length);
-        if (start < 0 || start + 1 >= end) {
-            return 0.0;
-        }
+        if (start < 0 || start + 1 >= end) return 0d;
         int crossings = 0;
         short previous = samples[start];
-        for (int i = start + 1; i < end; i++) {
-            short current = samples[i];
-            if ((previous < 0 && current >= 0)
-                    || (previous >= 0 && current < 0)) {
+        for (int index = start + 1; index < end; index++) {
+            short current = samples[index];
+            if ((previous < 0 && current >= 0) || (previous >= 0 && current < 0)) {
                 crossings++;
             }
             previous = current;
@@ -255,94 +307,79 @@ final class VoiceSignature {
     }
 
     private static double estimatePitch(
-            short[] samples,
-            int start,
-            int length,
-            int sampleRate) {
+            short[] samples, int start, int length, int sampleRate) {
         int end = Math.min(samples.length, start + length);
         int available = end - start;
-        if (available < 300) {
-            return 0.0;
-        }
-
-        int minimumLag = Math.max(1, sampleRate / 400);
-        int maximumLag = Math.min(available / 2, sampleRate / 75);
-        double bestCorrelation = 0.0;
+        if (available < 300) return 0d;
+        int minimumLag = Math.max(1, sampleRate / 420);
+        int maximumLag = Math.min(available / 2, sampleRate / 70);
+        double best = 0d;
         int bestLag = 0;
-
         for (int lag = minimumLag; lag <= maximumLag; lag++) {
-            double cross = 0.0;
-            double energyA = 0.0;
-            double energyB = 0.0;
-            for (int i = start + lag; i < end; i += 2) {
-                double a = samples[i];
-                double b = samples[i - lag];
-                cross += a * b;
-                energyA += a * a;
-                energyB += b * b;
+            double cross = 0d;
+            double energyA = 0d;
+            double energyB = 0d;
+            for (int index = start + lag; index < end; index += 2) {
+                double first = samples[index];
+                double second = samples[index - lag];
+                cross += first * second;
+                energyA += first * first;
+                energyB += second * second;
             }
             double denominator = Math.sqrt(energyA * energyB);
-            if (denominator <= 0.0) {
-                continue;
-            }
+            if (denominator <= 0d) continue;
             double correlation = cross / denominator;
-            if (correlation > bestCorrelation) {
-                bestCorrelation = correlation;
+            if (correlation > best) {
+                best = correlation;
                 bestLag = lag;
             }
         }
-
-        if (bestLag == 0 || bestCorrelation < 0.28) {
-            return 0.0;
-        }
-        return sampleRate / (double) bestLag;
+        return bestLag == 0 || best < 0.28d ? 0d : sampleRate / (double) bestLag;
     }
 
     private static double goertzelPower(
-            short[] samples,
-            int start,
-            int length,
-            int sampleRate,
-            double frequency) {
+            short[] samples, int start, int length, int sampleRate, double frequency) {
         int end = Math.min(samples.length, start + length);
-        if (start < 0 || start >= end) {
-            return 0.0;
-        }
-        double coefficient = 2.0 * Math.cos(
-            2.0 * Math.PI * frequency / sampleRate
-        );
-        double s0;
-        double s1 = 0.0;
-        double s2 = 0.0;
-        double previousInput = 0.0;
-
-        for (int i = start; i < end; i++) {
-            double input = samples[i] / 32768.0;
-            double emphasized = input - 0.97 * previousInput;
+        if (start < 0 || start >= end || frequency >= sampleRate / 2d) return 0d;
+        double coefficient = 2d * Math.cos(2d * Math.PI * frequency / sampleRate);
+        double s1 = 0d;
+        double s2 = 0d;
+        double previousInput = 0d;
+        for (int index = start; index < end; index++) {
+            double input = samples[index] / 32768d;
+            double emphasized = input - 0.97d * previousInput;
             previousInput = input;
-            s0 = emphasized + coefficient * s1 - s2;
+            double s0 = emphasized + coefficient * s1 - s2;
             s2 = s1;
             s1 = s0;
         }
-        return Math.max(0.0, s1 * s1 + s2 * s2 - coefficient * s1 * s2);
+        return Math.max(0d, s1 * s1 + s2 * s2 - coefficient * s1 * s2);
     }
 
-    private static double mean(double[] values) {
-        if (values.length == 0) {
-            return 0.0;
-        }
-        double sum = 0.0;
-        for (double value : values) {
-            sum += value;
-        }
+    private static double columnMean(double[][] values, int column) {
+        double sum = 0d;
+        for (double[] value : values) sum += value[column];
         return sum / values.length;
     }
 
-    private static double std(double[] values, double mean) {
-        if (values.length == 0) {
-            return 0.0;
+    private static double columnStd(double[][] values, int column, double mean) {
+        double variance = 0d;
+        for (double[] value : values) {
+            double delta = value[column] - mean;
+            variance += delta * delta;
         }
-        double variance = 0.0;
+        return Math.sqrt(variance / values.length);
+    }
+
+    private static double mean(double[] values) {
+        double sum = 0d;
+        for (double value : values) sum += value;
+        return values.length == 0 ? 0d : sum / values.length;
+    }
+
+    private static double std(double[] values, double mean) {
+        if (values.length == 0) return 0d;
+        double variance = 0d;
         for (double value : values) {
             double delta = value - mean;
             variance += delta * delta;
@@ -351,41 +388,37 @@ final class VoiceSignature {
     }
 
     private static double meanPositive(double[] values) {
-        double sum = 0.0;
+        double sum = 0d;
         int count = 0;
         for (double value : values) {
-            if (value > 0.0) {
+            if (value > 0d) {
                 sum += value;
                 count++;
             }
         }
-        return count == 0 ? 0.0 : sum / count;
+        return count == 0 ? 0d : sum / count;
     }
 
     private static double stdPositive(double[] values, double mean) {
-        double variance = 0.0;
+        double variance = 0d;
         int count = 0;
         for (double value : values) {
-            if (value > 0.0) {
+            if (value > 0d) {
                 double delta = value - mean;
                 variance += delta * delta;
                 count++;
             }
         }
-        return count == 0 ? 0.0 : Math.sqrt(variance / count);
+        return count == 0 ? 0d : Math.sqrt(variance / count);
     }
 
     private static void normalize(float[] vector) {
-        double norm = 0.0;
-        for (float value : vector) {
-            norm += value * value;
-        }
+        double norm = 0d;
+        for (float value : vector) norm += value * value;
         norm = Math.sqrt(norm);
-        if (norm <= 1e-9) {
-            return;
-        }
-        for (int i = 0; i < vector.length; i++) {
-            vector[i] /= norm;
+        if (norm <= 1e-9d) return;
+        for (int index = 0; index < vector.length; index++) {
+            vector[index] /= (float) norm;
         }
     }
 
